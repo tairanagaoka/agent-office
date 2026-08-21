@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { loadAgents } from "./agents.js";
 
 const PORT = 3001;
 const DEV_ORIGIN = "http://localhost:5173";
@@ -19,6 +20,7 @@ if (!process.env.AGENT_OFFICE_TOKEN) {
 }
 
 const sessions = new Map<string, SSEStreamingApi>();
+const agents = loadAgents();
 
 const app = new Hono();
 
@@ -44,6 +46,10 @@ app.use("*", async (c, next) => {
   await next();
 });
 
+app.get("/agents", (c) => {
+  return c.json(Array.from(agents.values()).map(({ id, name }) => ({ id, name })));
+});
+
 app.get("/stream", (c) => {
   return streamSSE(c, async (stream) => {
     const sessionId = randomUUID();
@@ -60,10 +66,18 @@ app.get("/stream", (c) => {
 });
 
 app.post("/chat", async (c) => {
-  const { sessionId, prompt } = await c.req.json<{ sessionId: string; prompt: string }>();
+  const { sessionId, prompt, agentId } = await c.req.json<{
+    sessionId: string;
+    prompt: string;
+    agentId: string;
+  }>();
   const stream = sessions.get(sessionId);
   if (!stream) {
     return c.text("Unknown session", 400);
+  }
+  const agent = agents.get(agentId);
+  if (!agent) {
+    return c.text("Unknown agent", 400);
   }
 
   (async () => {
@@ -72,6 +86,7 @@ app.post("/chat", async (c) => {
       options: {
         allowedTools: ["Read"],
         permissionMode: "default",
+        systemPrompt: agent.systemPrompt,
       },
     })) {
       await stream.writeSSE({ event: "message", data: JSON.stringify(message) });

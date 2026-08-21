@@ -4,8 +4,13 @@ const SERVER_URL = "http://127.0.0.1:3001";
 const TOKEN_STORAGE_KEY = "agent-office-token";
 
 type ChatLine = {
-  role: "user" | "assistant" | "system";
+  role: string;
   text: string;
+};
+
+type Agent = {
+  id: string;
+  name: string;
 };
 
 export function App() {
@@ -13,16 +18,26 @@ export function App() {
   const [connected, setConnected] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [lines, setLines] = useState<ChatLine[]>([]);
+  const [agentList, setAgentList] = useState<Agent[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
   const sessionIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const pendingAgentNameRef = useRef("assistant");
 
   const connect = () => {
     const es = new EventSource(`${SERVER_URL}/stream?token=${encodeURIComponent(token)}`);
 
-    es.addEventListener("session", (event) => {
+    es.addEventListener("session", async (event) => {
       sessionIdRef.current = event.data;
       setConnected(true);
       localStorage.setItem(TOKEN_STORAGE_KEY, token);
+
+      const res = await fetch(`${SERVER_URL}/agents`, {
+        headers: { "x-agent-office-token": token },
+      });
+      const list: Agent[] = await res.json();
+      setAgentList(list);
+      setSelectedAgentId((prev) => prev || list[0]?.id || "");
     });
 
     es.addEventListener("message", (event) => {
@@ -33,7 +48,7 @@ export function App() {
           .map((block: { text: string }) => block.text)
           .join("");
         if (text) {
-          setLines((prev) => [...prev, { role: "assistant", text }]);
+          setLines((prev) => [...prev, { role: pendingAgentNameRef.current, text }]);
         }
       } else if (message.type === "result") {
         setLines((prev) => [...prev, { role: "system", text: `完了: ${message.subtype}` }]);
@@ -48,7 +63,8 @@ export function App() {
   };
 
   const send = async () => {
-    if (!sessionIdRef.current || !prompt.trim()) return;
+    if (!sessionIdRef.current || !prompt.trim() || !selectedAgentId) return;
+    pendingAgentNameRef.current = agentList.find((a) => a.id === selectedAgentId)?.name ?? "assistant";
     setLines((prev) => [...prev, { role: "user", text: prompt }]);
     await fetch(`${SERVER_URL}/chat`, {
       method: "POST",
@@ -56,7 +72,7 @@ export function App() {
         "Content-Type": "application/json",
         "x-agent-office-token": token,
       },
-      body: JSON.stringify({ sessionId: sessionIdRef.current, prompt }),
+      body: JSON.stringify({ sessionId: sessionIdRef.current, prompt, agentId: selectedAgentId }),
     });
     setPrompt("");
   };
@@ -88,6 +104,16 @@ export function App() {
 
       {connected && (
         <div>
+          <div style={{ marginBottom: "0.5rem" }}>
+            話す相手:{" "}
+            <select value={selectedAgentId} onChange={(e) => setSelectedAgentId(e.target.value)}>
+              {agentList.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <input
             type="text"
             value={prompt}
