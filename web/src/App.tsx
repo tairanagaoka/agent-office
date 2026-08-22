@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 
 const SERVER_URL = "http://127.0.0.1:3001";
 const TOKEN_STORAGE_KEY = "agent-office-token";
@@ -7,6 +7,57 @@ type ChatLine = {
   role: string;
   text: string;
 };
+
+// **太字** だけを扱う最小限のインライン装飾(外部ライブラリなしで安全に済ませる)
+function renderInline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") ? (
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : (
+      <Fragment key={i}>{part}</Fragment>
+    )
+  );
+}
+
+// `- `箇条書きと**太字**だけをサポートする最小限のMarkdown表示(外部ライブラリ不使用)
+function renderMarkdownLite(text: string): ReactNode {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let currentList: string[] = [];
+
+  const flushList = () => {
+    if (currentList.length === 0) return;
+    blocks.push(
+      <ul key={blocks.length} style={{ margin: "0.25rem 0", paddingLeft: "1.25rem" }}>
+        {currentList.map((item, i) => (
+          <li key={i}>{renderInline(item)}</li>
+        ))}
+      </ul>
+    );
+    currentList = [];
+  };
+
+  for (const line of lines) {
+    const listMatch = line.match(/^[-*]\s+(.*)/);
+    if (listMatch) {
+      currentList.push(listMatch[1]);
+      continue;
+    }
+    flushList();
+    if (line.trim() === "") {
+      blocks.push(<div key={blocks.length} style={{ height: "0.4rem" }} />);
+    } else {
+      blocks.push(
+        <p key={blocks.length} style={{ margin: "0.15rem 0" }}>
+          {renderInline(line)}
+        </p>
+      );
+    }
+  }
+  flushList();
+
+  return <>{blocks}</>;
+}
 
 type Agent = {
   id: string;
@@ -381,11 +432,44 @@ export function App() {
               </div>
 
               <div style={{ minHeight: 200, marginBottom: "0.5rem", overflowY: "auto" }}>
-                {panel.lines.map((line, i) => (
-                  <p key={i} style={{ fontSize: "0.9rem" }}>
-                    <strong>{line.role}:</strong> {line.text}
-                  </p>
-                ))}
+                {panel.lines.map((line, i) => {
+                  if (line.role === "system") {
+                    return (
+                      <div
+                        key={i}
+                        style={{ textAlign: "center", fontSize: "0.75rem", color: "#999", margin: "0.6rem 0" }}
+                      >
+                        {line.text}
+                      </div>
+                    );
+                  }
+                  const isUser = line.role === "user";
+                  return (
+                    <div
+                      key={i}
+                      style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", margin: "0.4rem 0" }}
+                    >
+                      <div
+                        style={{
+                          maxWidth: "85%",
+                          background: isUser ? "#4285f4" : "#f1f1f1",
+                          color: isUser ? "#fff" : "#222",
+                          borderRadius: "10px",
+                          padding: "0.5rem 0.75rem",
+                          fontSize: "0.9rem",
+                          overflowWrap: "break-word",
+                        }}
+                      >
+                        {!isUser && (
+                          <div style={{ fontSize: "0.7rem", fontWeight: "bold", color: "#666", marginBottom: "0.2rem" }}>
+                            {line.role}
+                          </div>
+                        )}
+                        {renderMarkdownLite(line.text)}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <input
