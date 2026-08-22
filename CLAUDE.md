@@ -12,12 +12,15 @@ Claude Code の複数エージェントを「レトロなドット絵オフィ�
 - M1（1エージェントとブラウザで話せる）: 完了
 - M2（複数エージェントを切り替えて話せる）: 完了
 - M3（2つ同時に走る）: 完了
-- M4（進捗が見える）: 未着手
+- M4（進捗が見える）: 完了（M3の部署別パネルUIで達成、追加実装なし）
+- M5（Todoから振れる）: 完了
+- M6（ダッシュボード）: 未着手
 
 ## 構成
 
 ```
 server/            Node.js + Hono + @anthropic-ai/claude-agent-sdk
+server/data/       Todoの永続化(todos.json)。gitignore対象、実行時に自動生成
 web/               React + TypeScript + Vite
 templates/agents/  エージェント定義(Markdown, frontmatter: id/name + システムプロンプト本文)
 docs/concept.md    構想メモ・マイルストーン記録

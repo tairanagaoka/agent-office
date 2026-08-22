@@ -20,12 +20,25 @@ type PanelState = {
   prompt: string;
 };
 
+type Todo = {
+  id: string;
+  text: string;
+  done: boolean;
+  agentId?: string;
+  status?: "running" | "completed" | "failed";
+};
+
 export function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [connected, setConnected] = useState(false);
   const [panels, setPanels] = useState<Record<string, PanelState>>({});
+  const [agentList, setAgentList] = useState<Agent[]>([]);
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [newTodoText, setNewTodoText] = useState("");
   const sessionIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  const authHeaders = { "x-agent-office-token": token };
 
   const updatePanel = (agentId: string, update: (panel: PanelState) => PanelState) => {
     setPanels((prev) => (prev[agentId] ? { ...prev, [agentId]: update(prev[agentId]) } : prev));
@@ -43,15 +56,19 @@ export function App() {
         headers: { "x-agent-office-token": token },
       });
       const list: Agent[] = await res.json();
+      setAgentList(list);
       const initial: Record<string, PanelState> = {};
       for (const agent of list) {
         initial[agent.id] = { name: agent.name, lines: [], status: "idle", prompt: "" };
       }
       setPanels(initial);
+
+      const todosRes = await fetch(`${SERVER_URL}/todos`, { headers: { "x-agent-office-token": token } });
+      setTodos(await todosRes.json());
     });
 
     es.addEventListener("message", (event) => {
-      const { agentId, message } = JSON.parse(event.data);
+      const { agentId, todoId, message } = JSON.parse(event.data);
       if (message.type === "assistant") {
         const text = message.message.content
           .filter((block: { type: string }) => block.type === "text")
@@ -69,6 +86,15 @@ export function App() {
           status: message.is_error ? "failed" : "idle",
           lines: [...panel.lines, { role: "system", text: `完了: ${message.subtype}` }],
         }));
+        if (todoId) {
+          setTodos((prev) =>
+            prev.map((t) =>
+              t.id === todoId
+                ? { ...t, status: message.is_error ? "failed" : "completed", done: !message.is_error }
+                : t
+            )
+          );
+        }
       }
     });
 
@@ -93,15 +119,51 @@ export function App() {
 
     const res = await fetch(`${SERVER_URL}/chat`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-agent-office-token": token,
-      },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ sessionId: sessionIdRef.current, prompt, agentId }),
     });
 
     if (!res.ok) {
       updatePanel(agentId, (p) => ({ ...p, status: "failed" }));
+    }
+  };
+
+  const addTodo = async () => {
+    if (!newTodoText.trim()) return;
+    const res = await fetch(`${SERVER_URL}/todos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ text: newTodoText }),
+    });
+    const todo: Todo = await res.json();
+    setTodos((prev) => [...prev, todo]);
+    setNewTodoText("");
+  };
+
+  const toggleTodoDone = async (todo: Todo) => {
+    const res = await fetch(`${SERVER_URL}/todos/${todo.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ done: !todo.done }),
+    });
+    const updated: Todo = await res.json();
+    setTodos((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+  };
+
+  const assignTodo = async (todo: Todo, agentId: string) => {
+    if (!sessionIdRef.current) return;
+    setTodos((prev) =>
+      prev.map((t) => (t.id === todo.id ? { ...t, agentId, status: "running" } : t))
+    );
+    const res = await fetch(`${SERVER_URL}/todos/${todo.id}/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ sessionId: sessionIdRef.current, agentId }),
+    });
+    if (!res.ok) {
+      setTodos((prev) =>
+        prev.map((t) => (t.id === todo.id ? { ...t, status: "failed" } : t))
+      );
     }
   };
 
@@ -119,6 +181,49 @@ export function App() {
             style={{ width: "70%" }}
           />
           <button onClick={connect}>接続</button>
+        </div>
+      )}
+
+      {connected && (
+        <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
+          <h2 style={{ fontSize: "1.1rem" }}>Todo</h2>
+          <div style={{ marginBottom: "0.5rem" }}>
+            <input
+              type="text"
+              placeholder="今日やること"
+              value={newTodoText}
+              onChange={(e) => setNewTodoText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addTodo()}
+              style={{ width: "50%" }}
+            />
+            <button onClick={addTodo}>追加</button>
+          </div>
+          {todos.map((todo) => (
+            <div key={todo.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+              <input type="checkbox" checked={todo.done} onChange={() => toggleTodoDone(todo)} />
+              <span style={{ textDecoration: todo.done ? "line-through" : "none", flex: 1 }}>
+                {todo.text}
+              </span>
+              {todo.status === "running" ? (
+                <span style={{ fontSize: "0.8rem", color: "#666" }}>実行中...</span>
+              ) : (
+                <select
+                  defaultValue=""
+                  onChange={(e) => e.target.value && assignTodo(todo, e.target.value)}
+                >
+                  <option value="" disabled>
+                    AIに振る
+                  </option>
+                  {agentList.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {todo.status === "failed" && <span style={{ color: "red", fontSize: "0.8rem" }}>失敗</span>}
+            </div>
+          ))}
         </div>
       )}
 

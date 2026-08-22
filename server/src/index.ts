@@ -6,6 +6,7 @@ import { cors } from "hono/cors";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadAgents } from "./agents.js";
+import { addTodo, deleteTodo, listTodos, updateTodo } from "./todos.js";
 
 const PORT = 3001;
 const DEV_ORIGIN = "http://localhost:5173";
@@ -67,6 +68,63 @@ app.get("/stream", (c) => {
   });
 });
 
+// /chat と Todoの「AIに振る」の両方から使う共通のタスク実行処理。
+// todoIdを渡すと、完了・失敗時にそのTodoの状態を更新・永続化する。
+// 戻り値: 起動できればtaskId、その部署が既に稼働中ならnull（二重起動防止）
+function runTask(
+  stream: SSEStreamingApi,
+  sessionId: string,
+  agentId: string,
+  prompt: string,
+  todoId?: string
+): string | null {
+  const agent = agents.get(agentId);
+  if (!agent) return null;
+
+  const key = `${sessionId}:${agentId}`;
+  if (runningTasks.has(key)) return null;
+
+  const taskId = randomUUID();
+  runningTasks.set(key, taskId);
+
+  (async () => {
+    let failed = false;
+    try {
+      for await (const message of query({
+        prompt,
+        options: {
+          allowedTools: ["Read"],
+          permissionMode: "default",
+          systemPrompt: agent.systemPrompt,
+        },
+      })) {
+        if (message.type === "result" && "is_error" in message && message.is_error) {
+          failed = true;
+        }
+        await stream.writeSSE({ event: "message", data: JSON.stringify({ taskId, agentId, todoId, message }) });
+      }
+    } catch {
+      failed = true;
+      await stream.writeSSE({
+        event: "message",
+        data: JSON.stringify({
+          taskId,
+          agentId,
+          todoId,
+          message: { type: "result", subtype: "error", is_error: true },
+        }),
+      });
+    } finally {
+      runningTasks.delete(key);
+      if (todoId) {
+        updateTodo(todoId, { status: failed ? "failed" : "completed", done: !failed });
+      }
+    }
+  })();
+
+  return taskId;
+}
+
 app.post("/chat", async (c) => {
   const { sessionId, prompt, agentId } = await c.req.json<{
     sessionId: string;
@@ -77,43 +135,54 @@ app.post("/chat", async (c) => {
   if (!stream) {
     return c.text("Unknown session", 400);
   }
-  const agent = agents.get(agentId);
-  if (!agent) {
+  if (!agents.has(agentId)) {
     return c.text("Unknown agent", 400);
   }
 
-  const key = `${sessionId}:${agentId}`;
-  if (runningTasks.has(key)) {
+  const taskId = runTask(stream, sessionId, agentId, prompt);
+  if (!taskId) {
     return c.text("Agent is busy", 409);
   }
-  const taskId = randomUUID();
-  runningTasks.set(key, taskId);
 
-  (async () => {
-    try {
-      for await (const message of query({
-        prompt,
-        options: {
-          allowedTools: ["Read"],
-          permissionMode: "default",
-          systemPrompt: agent.systemPrompt,
-        },
-      })) {
-        await stream.writeSSE({ event: "message", data: JSON.stringify({ taskId, agentId, message }) });
-      }
-    } catch {
-      await stream.writeSSE({
-        event: "message",
-        data: JSON.stringify({
-          taskId,
-          agentId,
-          message: { type: "result", subtype: "error", is_error: true },
-        }),
-      });
-    } finally {
-      runningTasks.delete(key);
-    }
-  })();
+  return c.json({ ok: true, taskId });
+});
+
+app.get("/todos", (c) => {
+  return c.json(listTodos());
+});
+
+app.post("/todos", async (c) => {
+  const { text } = await c.req.json<{ text: string }>();
+  return c.json(addTodo(text));
+});
+
+app.patch("/todos/:id", async (c) => {
+  const patch = await c.req.json<{ done?: boolean }>();
+  const todo = updateTodo(c.req.param("id"), patch);
+  if (!todo) return c.text("Unknown todo", 404);
+  return c.json(todo);
+});
+
+app.delete("/todos/:id", (c) => {
+  deleteTodo(c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+app.post("/todos/:id/assign", async (c) => {
+  const todoId = c.req.param("id");
+  const { sessionId, agentId } = await c.req.json<{ sessionId: string; agentId: string }>();
+  const stream = sessions.get(sessionId);
+  if (!stream) return c.text("Unknown session", 400);
+  if (!agents.has(agentId)) return c.text("Unknown agent", 400);
+
+  const todo = updateTodo(todoId, { agentId, status: "running" });
+  if (!todo) return c.text("Unknown todo", 404);
+
+  const taskId = runTask(stream, sessionId, agentId, todo.text, todoId);
+  if (!taskId) {
+    updateTodo(todoId, { status: undefined, agentId: undefined });
+    return c.text("Agent is busy", 409);
+  }
 
   return c.json({ ok: true, taskId });
 });
