@@ -264,6 +264,16 @@ export function App() {
     rejected: "上限に到達",
   };
 
+  const formatRelativeReset = (resetsAt: number) => {
+    const diffMs = resetsAt * 1000 - Date.now();
+    if (diffMs <= 0) return "まもなくリセット";
+    const totalMinutes = Math.round(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `あと${minutes}分でリセット`;
+    return `あと${hours}時間${minutes}分でリセット`;
+  };
+
   const renderTodoRow = (todo: Todo, depth: number) => (
     <div
       key={todo.id}
@@ -429,11 +439,13 @@ export function App() {
             <div style={{ marginBottom: "1rem" }}>
               <strong style={{ fontSize: "0.9rem" }}>Claude Codeの利用枠(サブスク全体)</strong>
               {dashboard.rateLimits.map((rl) => (
-                <p key={rl.rateLimitType} style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>
-                  {RATE_LIMIT_LABELS[rl.rateLimitType ?? ""] ?? rl.rateLimitType}:{" "}
+                <p key={rl.rateLimitType} style={{ fontSize: "0.95rem", margin: "0.25rem 0" }}>
+                  <strong>{RATE_LIMIT_LABELS[rl.rateLimitType ?? ""] ?? rl.rateLimitType}</strong>:{" "}
                   {RATE_LIMIT_STATUS_LABELS[rl.status] ?? rl.status}
-                  {rl.utilization != null && ` (使用率 ${Math.round(rl.utilization * 100)}%)`}
-                  {rl.resetsAt && ` / リセット: ${new Date(rl.resetsAt * 1000).toLocaleString("ja-JP")}`}
+                  {rl.utilization != null && `（使用率 ${Math.round(rl.utilization * 100)}%）`}
+                  {rl.resetsAt && (
+                    <span style={{ color: "#666" }}> ・ {formatRelativeReset(rl.resetsAt)}</span>
+                  )}
                 </p>
               ))}
             </div>
@@ -441,9 +453,12 @@ export function App() {
 
           <p style={{ fontSize: "0.9rem" }}>
             稼働中: {dashboard.overall.runningCount} / 完了: {dashboard.overall.tasksCompleted} / 失敗:{" "}
-            {dashboard.overall.tasksFailed} / トークン合計: {dashboard.overall.totalTokens} / 概算コスト: $
-            {dashboard.overall.totalCostUsd.toFixed(4)} / 待ち時間合計:{" "}
+            {dashboard.overall.tasksFailed} / トークン合計: {dashboard.overall.totalTokens} / 待ち時間合計:{" "}
             {(dashboard.overall.totalWaitMs / 1000).toFixed(1)}秒
+            <span style={{ color: "#999", fontSize: "0.8rem" }}>
+              {" "}
+              (概算コスト ${dashboard.overall.totalCostUsd.toFixed(4)})
+            </span>
           </p>
           <table style={{ fontSize: "0.85rem", borderCollapse: "collapse" }}>
             <thead>
@@ -451,10 +466,10 @@ export function App() {
                 <th style={{ textAlign: "left", paddingRight: "1rem" }}>部署</th>
                 <th style={{ textAlign: "left", paddingRight: "1rem" }}>稼働状況</th>
                 <th style={{ textAlign: "right", paddingRight: "1rem" }}>トークン</th>
-                <th style={{ textAlign: "right", paddingRight: "1rem" }}>コスト($)</th>
                 <th style={{ textAlign: "right", paddingRight: "1rem" }}>待ち時間(秒)</th>
                 <th style={{ textAlign: "right", paddingRight: "1rem" }}>完了</th>
-                <th style={{ textAlign: "right" }}>失敗</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem" }}>失敗</th>
+                <th style={{ textAlign: "right", color: "#999", fontWeight: "normal" }}>概算コスト($)</th>
               </tr>
             </thead>
             <tbody>
@@ -463,10 +478,10 @@ export function App() {
                   <td style={{ paddingRight: "1rem" }}>{a.name}</td>
                   <td style={{ paddingRight: "1rem" }}>{a.running ? "実行中" : "待機"}</td>
                   <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.totalTokens}</td>
-                  <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.totalCostUsd.toFixed(4)}</td>
                   <td style={{ textAlign: "right", paddingRight: "1rem" }}>{(a.totalWaitMs / 1000).toFixed(1)}</td>
                   <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.tasksCompleted}</td>
-                  <td style={{ textAlign: "right" }}>{a.tasksFailed}</td>
+                  <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.tasksFailed}</td>
+                  <td style={{ textAlign: "right", color: "#999" }}>{a.totalCostUsd.toFixed(4)}</td>
                 </tr>
               ))}
             </tbody>
