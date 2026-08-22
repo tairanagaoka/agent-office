@@ -49,6 +49,21 @@ type AgentStats = {
 };
 const stats = new Map<string, AgentStats>();
 
+// Claude Codeサブスクの利用枠(5時間/7日ウィンドウ)。SDKがSSEで流してくる
+// rate_limit_eventをそのまま受け取って最新値を保持するだけ(あなた自身の
+// アカウント全体の枠で、agent-office経由の消費だけではない点に注意)
+type RateLimitInfo = {
+  status: "allowed" | "allowed_warning" | "rejected";
+  resetsAt?: number;
+  rateLimitType?: string;
+  utilization?: number;
+};
+const rateLimits = new Map<string, RateLimitInfo>();
+
+function recordRateLimit(info: RateLimitInfo) {
+  rateLimits.set(info.rateLimitType ?? "unknown", info);
+}
+
 function recordResult(agentId: string, message: { is_error?: boolean; total_cost_usd?: number; duration_api_ms?: number; usage?: { input_tokens?: number; output_tokens?: number } }) {
   const s = stats.get(agentId) ?? { totalCostUsd: 0, totalTokens: 0, totalWaitMs: 0, tasksCompleted: 0, tasksFailed: 0 };
   s.totalCostUsd += message.total_cost_usd ?? 0;
@@ -175,6 +190,8 @@ function runTask(
         if (message.type === "result") {
           failed = "is_error" in message && !!message.is_error;
           recordResult(agentId, message);
+        } else if (message.type === "rate_limit_event") {
+          recordRateLimit(message.rate_limit_info);
         }
         await stream.writeSSE({ event: "message", data: JSON.stringify({ taskId, agentId, todoId, message }) });
       }
@@ -240,7 +257,7 @@ app.get("/dashboard", (c) => {
     }),
     { totalCostUsd: 0, totalTokens: 0, totalWaitMs: 0, tasksCompleted: 0, tasksFailed: 0, runningCount: 0 }
   );
-  return c.json({ overall, perAgent });
+  return c.json({ overall, perAgent, rateLimits: Array.from(rateLimits.values()) });
 });
 
 app.get("/todos", (c) => {

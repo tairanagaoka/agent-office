@@ -39,9 +39,17 @@ type AgentStats = {
   tasksFailed: number;
 };
 
+type RateLimitInfo = {
+  status: "allowed" | "allowed_warning" | "rejected";
+  resetsAt?: number;
+  rateLimitType?: string;
+  utilization?: number;
+};
+
 type Dashboard = {
   overall: AgentStats & { runningCount: number };
   perAgent: (AgentStats & { agentId: string; name: string; running: boolean })[];
+  rateLimits: RateLimitInfo[];
 };
 
 export function App() {
@@ -243,6 +251,19 @@ export function App() {
     return `${Number(month)}/${Number(day)}`;
   };
 
+  const RATE_LIMIT_LABELS: Record<string, string> = {
+    five_hour: "5時間ウィンドウ",
+    seven_day: "7日ウィンドウ",
+    seven_day_opus: "7日ウィンドウ(Opus)",
+    seven_day_sonnet: "7日ウィンドウ(Sonnet)",
+  };
+
+  const RATE_LIMIT_STATUS_LABELS: Record<string, string> = {
+    allowed: "利用可能",
+    allowed_warning: "利用可能(残りわずか)",
+    rejected: "上限に到達",
+  };
+
   const renderTodoRow = (todo: Todo, depth: number) => (
     <div
       key={todo.id}
@@ -379,7 +400,7 @@ export function App() {
             [
               ["chat", "チャット"],
               ["todo", "Todo"],
-              ["dashboard", "ダッシュボード"],
+              ["dashboard", "ホワイトボード"],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -402,7 +423,22 @@ export function App() {
 
       {connected && activeTab === "dashboard" && dashboard && (
         <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
-          <h2 style={{ fontSize: "1.1rem" }}>ダッシュボード</h2>
+          <h2 style={{ fontSize: "1.1rem" }}>ホワイトボード</h2>
+
+          {dashboard.rateLimits.length > 0 && (
+            <div style={{ marginBottom: "1rem" }}>
+              <strong style={{ fontSize: "0.9rem" }}>Claude Codeの利用枠(サブスク全体)</strong>
+              {dashboard.rateLimits.map((rl) => (
+                <p key={rl.rateLimitType} style={{ fontSize: "0.85rem", margin: "0.25rem 0" }}>
+                  {RATE_LIMIT_LABELS[rl.rateLimitType ?? ""] ?? rl.rateLimitType}:{" "}
+                  {RATE_LIMIT_STATUS_LABELS[rl.status] ?? rl.status}
+                  {rl.utilization != null && ` (使用率 ${Math.round(rl.utilization * 100)}%)`}
+                  {rl.resetsAt && ` / リセット: ${new Date(rl.resetsAt * 1000).toLocaleString("ja-JP")}`}
+                </p>
+              ))}
+            </div>
+          )}
+
           <p style={{ fontSize: "0.9rem" }}>
             稼働中: {dashboard.overall.runningCount} / 完了: {dashboard.overall.tasksCompleted} / 失敗:{" "}
             {dashboard.overall.tasksFailed} / トークン合計: {dashboard.overall.totalTokens} / 概算コスト: $
