@@ -21,6 +21,8 @@ if (!process.env.AGENT_OFFICE_TOKEN) {
 
 const sessions = new Map<string, SSEStreamingApi>();
 const agents = loadAgents();
+// `${sessionId}:${agentId}` -> taskId。1部署につき同時に1タスクまで（二重起動防止）
+const runningTasks = new Map<string, string>();
 
 const app = new Hono();
 
@@ -80,20 +82,40 @@ app.post("/chat", async (c) => {
     return c.text("Unknown agent", 400);
   }
 
+  const key = `${sessionId}:${agentId}`;
+  if (runningTasks.has(key)) {
+    return c.text("Agent is busy", 409);
+  }
+  const taskId = randomUUID();
+  runningTasks.set(key, taskId);
+
   (async () => {
-    for await (const message of query({
-      prompt,
-      options: {
-        allowedTools: ["Read"],
-        permissionMode: "default",
-        systemPrompt: agent.systemPrompt,
-      },
-    })) {
-      await stream.writeSSE({ event: "message", data: JSON.stringify(message) });
+    try {
+      for await (const message of query({
+        prompt,
+        options: {
+          allowedTools: ["Read"],
+          permissionMode: "default",
+          systemPrompt: agent.systemPrompt,
+        },
+      })) {
+        await stream.writeSSE({ event: "message", data: JSON.stringify({ taskId, agentId, message }) });
+      }
+    } catch {
+      await stream.writeSSE({
+        event: "message",
+        data: JSON.stringify({
+          taskId,
+          agentId,
+          message: { type: "result", subtype: "error", is_error: true },
+        }),
+      });
+    } finally {
+      runningTasks.delete(key);
     }
   })();
 
-  return c.json({ ok: true });
+  return c.json({ ok: true, taskId });
 });
 
 serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {

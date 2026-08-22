@@ -13,16 +13,23 @@ type Agent = {
   name: string;
 };
 
+type PanelState = {
+  name: string;
+  lines: ChatLine[];
+  status: "idle" | "running" | "failed";
+  prompt: string;
+};
+
 export function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [connected, setConnected] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const [lines, setLines] = useState<ChatLine[]>([]);
-  const [agentList, setAgentList] = useState<Agent[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [panels, setPanels] = useState<Record<string, PanelState>>({});
   const sessionIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const pendingAgentNameRef = useRef("assistant");
+
+  const updatePanel = (agentId: string, update: (panel: PanelState) => PanelState) => {
+    setPanels((prev) => (prev[agentId] ? { ...prev, [agentId]: update(prev[agentId]) } : prev));
+  };
 
   const connect = () => {
     const es = new EventSource(`${SERVER_URL}/stream?token=${encodeURIComponent(token)}`);
@@ -36,22 +43,32 @@ export function App() {
         headers: { "x-agent-office-token": token },
       });
       const list: Agent[] = await res.json();
-      setAgentList(list);
-      setSelectedAgentId((prev) => prev || list[0]?.id || "");
+      const initial: Record<string, PanelState> = {};
+      for (const agent of list) {
+        initial[agent.id] = { name: agent.name, lines: [], status: "idle", prompt: "" };
+      }
+      setPanels(initial);
     });
 
     es.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data);
+      const { agentId, message } = JSON.parse(event.data);
       if (message.type === "assistant") {
         const text = message.message.content
           .filter((block: { type: string }) => block.type === "text")
           .map((block: { text: string }) => block.text)
           .join("");
         if (text) {
-          setLines((prev) => [...prev, { role: pendingAgentNameRef.current, text }]);
+          updatePanel(agentId, (panel) => ({
+            ...panel,
+            lines: [...panel.lines, { role: panel.name, text }],
+          }));
         }
       } else if (message.type === "result") {
-        setLines((prev) => [...prev, { role: "system", text: `完了: ${message.subtype}` }]);
+        updatePanel(agentId, (panel) => ({
+          ...panel,
+          status: message.is_error ? "failed" : "idle",
+          lines: [...panel.lines, { role: "system", text: `完了: ${message.subtype}` }],
+        }));
       }
     });
 
@@ -62,24 +79,35 @@ export function App() {
     eventSourceRef.current = es;
   };
 
-  const send = async () => {
-    if (!sessionIdRef.current || !prompt.trim() || !selectedAgentId) return;
-    pendingAgentNameRef.current = agentList.find((a) => a.id === selectedAgentId)?.name ?? "assistant";
-    setLines((prev) => [...prev, { role: "user", text: prompt }]);
-    await fetch(`${SERVER_URL}/chat`, {
+  const send = async (agentId: string) => {
+    const panel = panels[agentId];
+    if (!sessionIdRef.current || !panel || !panel.prompt.trim() || panel.status === "running") return;
+
+    const prompt = panel.prompt;
+    updatePanel(agentId, (p) => ({
+      ...p,
+      status: "running",
+      prompt: "",
+      lines: [...p.lines, { role: "user", text: prompt }],
+    }));
+
+    const res = await fetch(`${SERVER_URL}/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-agent-office-token": token,
       },
-      body: JSON.stringify({ sessionId: sessionIdRef.current, prompt, agentId: selectedAgentId }),
+      body: JSON.stringify({ sessionId: sessionIdRef.current, prompt, agentId }),
     });
-    setPrompt("");
+
+    if (!res.ok) {
+      updatePanel(agentId, (p) => ({ ...p, status: "failed" }));
+    }
   };
 
   return (
-    <div style={{ fontFamily: "sans-serif", maxWidth: 640, margin: "2rem auto" }}>
-      <h1>agent-office (M1)</h1>
+    <div style={{ fontFamily: "sans-serif", maxWidth: 1100, margin: "2rem auto" }}>
+      <h1>agent-office (M3)</h1>
 
       {!connected && (
         <div style={{ marginBottom: "1rem" }}>
@@ -94,34 +122,42 @@ export function App() {
         </div>
       )}
 
-      <div style={{ border: "1px solid #ccc", padding: "1rem", minHeight: 200, marginBottom: "1rem" }}>
-        {lines.map((line, i) => (
-          <p key={i}>
-            <strong>{line.role}:</strong> {line.text}
-          </p>
-        ))}
-      </div>
-
       {connected && (
-        <div>
-          <div style={{ marginBottom: "0.5rem" }}>
-            話す相手:{" "}
-            <select value={selectedAgentId} onChange={(e) => setSelectedAgentId(e.target.value)}>
-              {agentList.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-            style={{ width: "70%" }}
-          />
-          <button onClick={send}>送信</button>
+        <div style={{ display: "flex", gap: "1rem" }}>
+          {Object.entries(panels).map(([agentId, panel]) => (
+            <div key={agentId} style={{ flex: 1, border: "1px solid #ccc", padding: "1rem" }}>
+              <h2 style={{ fontSize: "1.1rem" }}>
+                {panel.name}{" "}
+                <span style={{ fontSize: "0.8rem", color: "#666" }}>
+                  (
+                  {panel.status === "running" ? "実行中" : panel.status === "failed" ? "失敗" : "待機"}
+                  )
+                </span>
+              </h2>
+
+              <div style={{ minHeight: 200, marginBottom: "0.5rem", overflowY: "auto" }}>
+                {panel.lines.map((line, i) => (
+                  <p key={i} style={{ fontSize: "0.9rem" }}>
+                    <strong>{line.role}:</strong> {line.text}
+                  </p>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                value={panel.prompt}
+                disabled={panel.status === "running"}
+                onChange={(e) =>
+                  updatePanel(agentId, (p) => ({ ...p, prompt: e.target.value }))
+                }
+                onKeyDown={(e) => e.key === "Enter" && send(agentId)}
+                style={{ width: "100%", marginBottom: "0.5rem" }}
+              />
+              <button onClick={() => send(agentId)} disabled={panel.status === "running"}>
+                送信
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>
