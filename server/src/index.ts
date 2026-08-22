@@ -11,6 +11,7 @@ import { loadAgents } from "./agents.js";
 import { addTodo, buildTodoContext, deleteTodo, listTodos, syncFromGoogle, updateTodo } from "./todos.js";
 import { buildAuthUrl, exchangeCode, fetchIncompleteTasks, isConnected as isGoogleConnected } from "./google-tasks.js";
 import { listDocuments, saveDocument } from "./documents.js";
+import { getProject, loadProjects, registerProject } from "./projects.js";
 
 const PORT = 3001;
 const DEV_ORIGIN = "http://localhost:5173";
@@ -37,7 +38,9 @@ if (!process.env.AGENT_OFFICE_TOKEN) {
 
 const sessions = new Map<string, SSEStreamingApi>();
 const agents = loadAgents();
-// `${sessionId}:${agentId}` -> taskId。1部署につき同時に1タスクまで（二重起動防止）
+// `${sessionId}:${projectId}:${agentId}` -> taskId。
+// 同じ(セッション,プロジェクト,部署)につき同時に1タスクまで（二重起動防止）。
+// projectIdを含めることで、同じ部署が別プロジェクトでは並行して動けるようにしている。
 const runningTasks = new Map<string, string>();
 
 // M6ダッシュボード用の集計（プロセス起動からの累計。永続化はしない）
@@ -143,7 +146,28 @@ app.post("/sync/google-tasks", async (c) => {
 });
 
 app.get("/agents", (c) => {
-  return c.json(Array.from(agents.values()).map(({ id, name }) => ({ id, name })));
+  return c.json(
+    Array.from(agents.values()).map(({ id, name, allowedTools, scope }) => ({
+      id,
+      name,
+      tools: allowedTools,
+      scope,
+    }))
+  );
+});
+
+app.get("/projects", (c) => {
+  return c.json(loadProjects());
+});
+
+app.post("/projects", async (c) => {
+  const { name, path } = await c.req.json<{ name: string; path: string }>();
+  try {
+    const project = registerProject(name, path);
+    return c.json(project, 201);
+  } catch (err) {
+    return c.text(err instanceof Error ? err.message : "登録に失敗しました", 400);
+  }
 });
 
 app.get("/stream", (c) => {
@@ -162,19 +186,31 @@ app.get("/stream", (c) => {
 });
 
 // /chat と Todoの「AIに振る」の両方から使う共通のタスク実行処理。
+// projectIdは必須。scope:globalのエージェントは常にagent-office自身のディレクトリで動き、
+// scope:projectのエージェントは指定されたプロジェクトのディレクトリで動く。
 // todoIdを渡すと、完了・失敗時にそのTodoの状態を更新・永続化する。
-// 戻り値: 起動できればtaskId、その部署が既に稼働中ならnull（二重起動防止）
+// 戻り値: 起動できればtaskId、その部署が既に稼働中ならnull（二重起動防止）、
+// 存在しないprojectIdならnullではなく例外を投げて呼び出し側で404にする。
 function runTask(
   stream: SSEStreamingApi,
   sessionId: string,
   agentId: string,
   prompt: string,
+  projectId: string,
   todoId?: string
 ): string | null {
   const agent = agents.get(agentId);
   if (!agent) return null;
 
-  const key = `${sessionId}:${agentId}`;
+  const project = getProject(projectId);
+  if (!project) throw new Error(`Unknown project: ${projectId}`);
+
+  // scope:globalは常にagent-office自身のディレクトリで動く。UIで選ばれているプロジェクトを無視する。
+  // サーバー側で強制することで、UIの見た目だけの制御にしない。
+  const effectiveProjectId = agent.scope === "global" ? "self" : project.id;
+  const effectiveCwd = agent.scope === "global" ? PROJECT_ROOT : project.path;
+
+  const key = `${sessionId}:${effectiveProjectId}:${agentId}`;
   if (runningTasks.has(key)) return null;
 
   const taskId = randomUUID();
@@ -193,7 +229,7 @@ function runTask(
           disallowedTools: ALL_TOOLS.filter((t) => !agent.allowedTools.includes(t)),
           permissionMode: "default",
           systemPrompt,
-          cwd: PROJECT_ROOT,
+          cwd: effectiveCwd,
         },
       })) {
         if (message.type === "assistant") {
@@ -228,7 +264,7 @@ function runTask(
       // 応答内容は書斎(server/data/documents/)に.mdファイルとして永続化する。
       // ブラウザを閉じていても、あるいはSSE接続が切れていても記録は残る。
       if (responseText.trim()) {
-        saveDocument(agent.name, prompt, responseText);
+        saveDocument(agent.name, prompt, responseText, effectiveProjectId);
       }
     }
   })();
@@ -237,10 +273,11 @@ function runTask(
 }
 
 app.post("/chat", async (c) => {
-  const { sessionId, prompt, agentId } = await c.req.json<{
+  const { sessionId, prompt, agentId, projectId } = await c.req.json<{
     sessionId: string;
     prompt: string;
     agentId: string;
+    projectId: string;
   }>();
   const stream = sessions.get(sessionId);
   if (!stream) {
@@ -249,8 +286,16 @@ app.post("/chat", async (c) => {
   if (!agents.has(agentId)) {
     return c.text("Unknown agent", 400);
   }
+  if (!getProject(projectId)) {
+    return c.text("Unknown project", 404);
+  }
 
-  const taskId = runTask(stream, sessionId, agentId, prompt);
+  let taskId: string | null;
+  try {
+    taskId = runTask(stream, sessionId, agentId, prompt, projectId);
+  } catch (err) {
+    return c.text(err instanceof Error ? err.message : "failed to start task", 404);
+  }
   if (!taskId) {
     return c.text("Agent is busy", 409);
   }
@@ -259,11 +304,12 @@ app.post("/chat", async (c) => {
 });
 
 app.get("/documents", (c) => {
-  return c.json(listDocuments());
+  return c.json(listDocuments(c.req.query("projectId")));
 });
 
 app.get("/dashboard", (c) => {
-  const runningAgentIds = new Set(Array.from(runningTasks.keys()).map((key) => key.split(":")[1]));
+  // キーは `${sessionId}:${projectId}:${agentId}` の3分割なので、agentIdはindex 2
+  const runningAgentIds = new Set(Array.from(runningTasks.keys()).map((key) => key.split(":")[2]));
   const perAgent = Array.from(agents.values()).map(({ id, name }) => {
     const s = stats.get(id) ?? { totalCostUsd: 0, totalTokens: 0, totalWaitMs: 0, tasksCompleted: 0, tasksFailed: 0 };
     return { agentId: id, name, running: runningAgentIds.has(id), ...s };
@@ -305,15 +351,26 @@ app.delete("/todos/:id", (c) => {
 
 app.post("/todos/:id/assign", async (c) => {
   const todoId = c.req.param("id");
-  const { sessionId, agentId } = await c.req.json<{ sessionId: string; agentId: string }>();
+  const { sessionId, agentId, projectId } = await c.req.json<{
+    sessionId: string;
+    agentId: string;
+    projectId: string;
+  }>();
   const stream = sessions.get(sessionId);
   if (!stream) return c.text("Unknown session", 400);
   if (!agents.has(agentId)) return c.text("Unknown agent", 400);
+  if (!getProject(projectId)) return c.text("Unknown project", 404);
 
   const todo = updateTodo(todoId, { agentId, status: "running" });
   if (!todo) return c.text("Unknown todo", 404);
 
-  const taskId = runTask(stream, sessionId, agentId, todo.text, todoId);
+  let taskId: string | null;
+  try {
+    taskId = runTask(stream, sessionId, agentId, todo.text, projectId, todoId);
+  } catch (err) {
+    updateTodo(todoId, { status: undefined, agentId: undefined });
+    return c.text(err instanceof Error ? err.message : "failed to start task", 404);
+  }
   if (!taskId) {
     updateTodo(todoId, { status: undefined, agentId: undefined });
     return c.text("Agent is busy", 409);

@@ -15,19 +15,27 @@ Claude Code の複数エージェントを「レトロなドット絵オフィ�
 - M4（進捗が見える）: 完了（M3の部署別パネルUIで達成、追加実装なし）
 - M5（Todoから振れる）: 完了
 - M6（ダッシュボード）: 完了
-- **v1.0（実用完成）達成**。次はM7（ドット絵と環境音、v1.5）
+- **v1.0（実用完成）達成**。M7（ドット絵と環境音、v1.5）は着手中
+- **v2.0の一般公開は中止（2026-08-22）**。agent-officeは自分専用ツールとして育てる方針に変更。
+  8章の配布要件（LICENSE等）は不要、セキュリティ要件は自衛のため引き続き維持する。
 - **Todo専用画面は廃止（2026-08-22）**。Google Tasksから一方向同期はバックグラウンドで継続、
   ブラウジングはGoogle Tasks側に任せる。agent-office側は各部署のエージェントが会話の中で
   未完了Todoに自然に触れる「ヒアリング」方式に変更（詳細は下記）
+- **複数プロジェクト対応を追加（2026-08-22）**。agent-officeを「AI駆動開発を量産する会社
+  ダッシュボード」にする方針のもと、部署を8つ（実装/テスト/レビュー/調査/企画/広報/総務/経理）に
+  拡張し、実装系の部署は選択中のプロジェクト（agent-office自身とは別のディレクトリでもよい）に
+  向けて動くようにした（詳細は下記「複数プロジェクト対応」）
 
 ## 構成
 
 ```
 server/            Node.js + Hono + @anthropic-ai/claude-agent-sdk
+server/src/projects.ts  プロジェクト(agent-office自身+別ディレクトリ)の登録・管理
 server/data/       Todo(todos.json)・Google OAuthトークン(google-auth.json)・
-                   資料/書斎(documents/*.md)の永続化。gitignore対象、実行時に自動生成
+                   資料/書斎(documents/*.md)・プロジェクト一覧(projects.json)の永続化。
+                   gitignore対象、実行時に自動生成
 web/               React + TypeScript + Vite
-templates/agents/  エージェント定義(Markdown, frontmatter: id/name + システムプロンプト本文)
+templates/agents/  エージェント定義(Markdown, frontmatter: id/name/tools/scope + システムプロンプト本文)
 docs/concept.md    構想メモ・マイルストーン記録
 ```
 
@@ -58,8 +66,9 @@ npm workspaces構成。依存関係はルートで `npm install`、各ワーク�
 - **エージェントのツール権限は許可リスト方式**（`server/src/index.ts`の`ALL_TOOLS`とagentの`allowedTools`の
   差分を`disallowedTools`に渡す）。新しいツールがAgent SDKに増えたら`ALL_TOOLS`に追記すること。
   **`Task`（サブエージェント起動）を許可リストに含めると、制限の緩いサブエージェントに委任して
-  Bash等の制限を回避される**ので、部署エージェントには基本含めない。開発エージェントは`cwd`を
-  プロジェクトルート(`PROJECT_ROOT`)に固定している。
+  Bash等の制限を回避される**ので、部署エージェントには基本含めない。
+  **`Bash`を持つエージェントに書き込み権限なしを謳うのは無意味**（`bash -c "echo>file"`で回避できる）。
+  レビュー担当のように「書き込みさせない」ことが目的の部署にはBashも含めないこと。
 - **Google Tasks連携**は一方向(Google→agent-officeの取り込みのみ、`tasks.readonly`スコープ)。
   `/auth/google`と`/auth/google/callback`だけは認証ミドルウェアの対象外（Googleからの外部
   リダイレクトが`x-agent-office-token`を持ってこられないため）。代わりに`state`パラメータで
@@ -85,6 +94,23 @@ npm workspaces構成。依存関係はルートで `npm install`、各ワーク�
   （サーバー側が正、フロント側での組み立てはしない）。
 - Markdown表示は`react-markdown` + `remark-gfm`を使用（見出し・表・コードブロック等に対応）。
   `.chat-markdown`クラスで狭い吹き出し用に余白を詰めている。
+
+## 複数プロジェクト対応
+
+- `server/src/projects.ts`が担当。`server/data/projects.json`に永続化し、初回起動時に
+  `id: "self"`（agent-office自身のディレクトリ）を自動シードする。
+- **projectIdは`/chat`等で常に必須**（未指定時に暗黙で`self`に倒すような分岐は作らない）。
+  存在しないprojectIdを渡すと404で明示的に失敗する（静かに別ディレクトリへ差し替わるのを防ぐため）。
+- `templates/agents/*.md`の`scope:`（`global`か`project`）で、そのエージェントが常に
+  agent-office自身のディレクトリで動くか、選択中プロジェクトのディレクトリで動くかを宣言する。
+  未指定/パース失敗時は`global`にフォールバックする（安全側）。現状`life`(総務部)のみ`global`。
+- 並行実行のロックキーは`` `${sessionId}:${projectId}:${agentId}` ``（`server/src/index.ts`の
+  `runTask()`内）。projectIdを含めることで、同じ部署が別プロジェクトでは並行して動ける。
+- **プロジェクト登録はユーザーがUIのフォームから行う操作のみ**（`POST /projects`）。エージェントが
+  自分でプロジェクトを追加したり任意のパスを選んだりする経路(MCPツール等)は作らないこと。
+  登録時は`fs.existsSync && isDirectory`で検証し、存在しないパスは400で拒否する。
+- `PROJECT_ROOT`（agent-office自身の設置場所。`templates/agents/`や`server/data/`を探す基準）と、
+  各`Project.path`（ユーザーが登録した個別プロジェクトのパス）は別概念。混同しないこと。
 
 ## 実装上の注意
 

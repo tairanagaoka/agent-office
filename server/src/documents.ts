@@ -12,6 +12,7 @@ export type DocumentEntry = {
   prompt: string;
   text: string;
   timestamp: number;
+  projectId: string;
 };
 
 function ensureDir(): void {
@@ -25,6 +26,7 @@ function toFrontmatter(doc: Omit<DocumentEntry, "text">): string {
     `agent: ${doc.agentName}`,
     `prompt: ${JSON.stringify(doc.prompt)}`,
     `timestamp: ${doc.timestamp}`,
+    `project: ${doc.projectId}`,
     "---",
     "",
     "",
@@ -33,16 +35,16 @@ function toFrontmatter(doc: Omit<DocumentEntry, "text">): string {
 
 // 構想メモ5-4「書斎（ナレッジ蓄積）」の実体。セッションが消えても資料は
 // server/data/documents/ に.mdファイルとして残る。
-export function saveDocument(agentName: string, prompt: string, text: string): DocumentEntry {
+export function saveDocument(agentName: string, prompt: string, text: string, projectId: string): DocumentEntry {
   ensureDir();
   const id = randomUUID();
   const timestamp = Date.now();
-  const doc = { id, agentName, prompt, timestamp };
+  const doc = { id, agentName, prompt, timestamp, projectId };
   writeFileSync(join(DOCS_DIR, `${timestamp}-${id}.md`), toFrontmatter(doc) + text);
   return { ...doc, text };
 }
 
-export function listDocuments(): DocumentEntry[] {
+export function listDocuments(projectId?: string): DocumentEntry[] {
   ensureDir();
   const files = readdirSync(DOCS_DIR).filter((f) => f.endsWith(".md"));
   const docs = files
@@ -68,10 +70,14 @@ export function listDocuments(): DocumentEntry[] {
         agentName: data.agent ?? "",
         prompt,
         timestamp: Number(data.timestamp) || 0,
+        // projectIdが無い古いファイルは、当時実際にagent-office自身のディレクトリで
+        // 動いていたので"self"として扱う(後方互換)
+        projectId: data.project ?? "self",
         text: body.trim(),
       };
     })
-    .filter((d): d is DocumentEntry => d !== null);
+    .filter((d): d is DocumentEntry => d !== null)
+    .filter((d) => !projectId || d.projectId === projectId);
 
   return docs.sort((a, b) => b.timestamp - a.timestamp);
 }

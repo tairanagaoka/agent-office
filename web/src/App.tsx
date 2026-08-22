@@ -40,6 +40,15 @@ function Markdown({ text }: { text: string }) {
 type Agent = {
   id: string;
   name: string;
+  tools: string[];
+  scope: "global" | "project";
+};
+
+type Project = {
+  id: string;
+  name: string;
+  path: string;
+  createdAt: string;
 };
 
 type PanelState = {
@@ -55,6 +64,7 @@ type DocumentEntry = {
   prompt: string;
   text: string;
   timestamp: number;
+  projectId: string;
 };
 
 type AgentStats = {
@@ -172,8 +182,15 @@ export function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [connected, setConnected] = useState(false);
   const [panels, setPanels] = useState<Record<string, PanelState>>({});
+  const [agentList, setAgentList] = useState<Agent[]>([]);
   const [documents, setDocuments] = useState<DocumentEntry[]>([]);
+  const [docsProjectFilter, setDocsProjectFilter] = useState("");
   const [activeTab, setActiveTab] = useState<"chat" | "documents" | "dashboard">("chat");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [currentProjectId, setCurrentProjectId] = useState("self");
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectPath, setNewProjectPath] = useState("");
+  const [projectError, setProjectError] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleSyncNote, setGoogleSyncNote] = useState(() => {
@@ -206,9 +223,34 @@ export function App() {
     setDashboard(await res.json());
   };
 
-  const refreshDocuments = async () => {
-    const res = await fetch(`${SERVER_URL}/documents`, { headers: authHeaders });
+  const refreshDocuments = async (projectId?: string) => {
+    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+    const res = await fetch(`${SERVER_URL}/documents${query}`, { headers: authHeaders });
     setDocuments(await res.json());
+  };
+
+  const refreshProjects = async () => {
+    const res = await fetch(`${SERVER_URL}/projects`, { headers: authHeaders });
+    setProjects(await res.json());
+  };
+
+  const addProject = async () => {
+    if (!newProjectName.trim() || !newProjectPath.trim()) return;
+    setProjectError("");
+    const res = await fetch(`${SERVER_URL}/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ name: newProjectName, path: newProjectPath }),
+    });
+    if (!res.ok) {
+      setProjectError(await res.text());
+      return;
+    }
+    const project: Project = await res.json();
+    setProjects((prev) => [...prev, project]);
+    setCurrentProjectId(project.id);
+    setNewProjectName("");
+    setNewProjectPath("");
   };
 
   const updatePanel = (agentId: string, update: (panel: PanelState) => PanelState) => {
@@ -227,11 +269,14 @@ export function App() {
         headers: { "x-agent-office-token": token },
       });
       const list: Agent[] = await res.json();
+      setAgentList(list);
       const initial: Record<string, PanelState> = {};
       for (const agent of list) {
         initial[agent.id] = { name: agent.name, lines: [], status: "idle", prompt: "" };
       }
       setPanels(initial);
+
+      await refreshProjects();
 
       const googleStatusRes = await fetch(`${SERVER_URL}/auth/google/status`, {
         headers: { "x-agent-office-token": token },
@@ -304,7 +349,7 @@ export function App() {
     const res = await fetch(`${SERVER_URL}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
-      body: JSON.stringify({ sessionId: sessionIdRef.current, prompt, agentId }),
+      body: JSON.stringify({ sessionId: sessionIdRef.current, prompt, agentId, projectId: currentProjectId }),
     });
 
     if (!res.ok) {
@@ -369,6 +414,53 @@ export function App() {
           <button onClick={connect} style={{ ...buttonStyle, marginLeft: "0.5rem" }}>
             接続
           </button>
+        </div>
+      )}
+
+      {connected && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "0.5rem",
+            marginBottom: "1rem",
+            padding: "0.75rem",
+            background: THEME.panelBg,
+            border: `1px solid ${THEME.panelBorder}`,
+            borderRadius: "4px",
+          }}
+        >
+          <span style={{ fontSize: "0.85rem", color: THEME.textMuted }}>プロジェクト:</span>
+          <select
+            value={currentProjectId}
+            onChange={(e) => setCurrentProjectId(e.target.value)}
+            style={{ ...inputStyle, padding: "0.3rem 0.5rem" }}
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder="新規プロジェクト名"
+            value={newProjectName}
+            onChange={(e) => setNewProjectName(e.target.value)}
+            style={{ ...inputStyle, width: "10rem" }}
+          />
+          <input
+            type="text"
+            placeholder="絶対パス(例: C:\Git\my-app)"
+            value={newProjectPath}
+            onChange={(e) => setNewProjectPath(e.target.value)}
+            style={{ ...inputStyle, width: "16rem" }}
+          />
+          <button onClick={addProject} style={buttonStyle}>
+            プロジェクトを登録
+          </button>
+          {projectError && <span style={{ color: THEME.error, fontSize: "0.8rem" }}>{projectError}</span>}
         </div>
       )}
 
@@ -488,6 +580,23 @@ export function App() {
       {connected && activeTab === "documents" && (
         <div style={{ background: THEME.panelBg, border: `1px solid ${THEME.panelBorder}`, borderRadius: "4px", padding: "1rem", marginBottom: "1rem" }}>
           <h2 style={{ fontSize: "1.1rem", marginTop: 0 }}>資料</h2>
+          <div style={{ marginBottom: "0.75rem" }}>
+            <select
+              value={docsProjectFilter}
+              onChange={(e) => {
+                setDocsProjectFilter(e.target.value);
+                refreshDocuments(e.target.value || undefined);
+              }}
+              style={{ ...inputStyle, padding: "0.3rem 0.5rem" }}
+            >
+              <option value="">すべてのプロジェクト</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
           {documents.length === 0 ? (
             <p style={{ fontSize: "0.9rem", color: THEME.textMuted }}>まだ資料はありません。</p>
           ) : (
@@ -504,7 +613,8 @@ export function App() {
               >
                 <div style={{ fontSize: "0.8rem", color: THEME.textMuted, marginBottom: "0.5rem" }}>
                   <strong style={{ color: THEME.text }}>{doc.agentName}</strong> ・{" "}
-                  {new Date(doc.timestamp).toLocaleString("ja-JP")}
+                  {new Date(doc.timestamp).toLocaleString("ja-JP")} ・{" "}
+                  {projects.find((p) => p.id === doc.projectId)?.name ?? doc.projectId}
                   {doc.prompt && <> ・ 依頼内容: {doc.prompt}</>}
                 </div>
                 <Markdown text={doc.text} />
@@ -515,12 +625,15 @@ export function App() {
       )}
 
       {connected && activeTab === "chat" && (
-        <div style={{ display: "flex", gap: "1rem" }}>
-          {Object.entries(panels).map(([agentId, panel]) => (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
+          {Object.entries(panels).map(([agentId, panel]) => {
+            const agentMeta = agentList.find((a) => a.id === agentId);
+            return (
             <div
               key={agentId}
               style={{
-                flex: 1,
+                flex: "1 1 280px",
+                minWidth: 280,
                 background: THEME.panelBg,
                 border: `1px solid ${THEME.panelBorder}`,
                 borderRadius: "4px",
@@ -544,6 +657,11 @@ export function App() {
                   >
                     ({panel.status === "running" ? "実行中" : panel.status === "failed" ? "失敗" : "待機"})
                   </span>
+                  {agentMeta?.scope === "global" && (
+                    <span style={{ fontSize: "0.7rem", color: THEME.textMuted, marginLeft: "0.4rem" }}>
+                      (全プロジェクト共通)
+                    </span>
+                  )}
                 </h2>
               </div>
 
@@ -602,7 +720,8 @@ export function App() {
                 送信
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
