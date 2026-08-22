@@ -8,7 +8,7 @@ import { cors } from "hono/cors";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadAgents } from "./agents.js";
-import { addTodo, addTodoFromGoogle, deleteTodo, listTodos, updateTodo } from "./todos.js";
+import { addTodo, deleteTodo, listTodos, syncFromGoogle, updateTodo } from "./todos.js";
 import { buildAuthUrl, exchangeCode, fetchIncompleteTasks, isConnected as isGoogleConnected } from "./google-tasks.js";
 
 const PORT = 3001;
@@ -114,10 +114,7 @@ app.get("/auth/google/status", (c) => {
 app.post("/sync/google-tasks", async (c) => {
   try {
     const tasks = await fetchIncompleteTasks();
-    let added = 0;
-    for (const task of tasks) {
-      if (addTodoFromGoogle(task.id, task.title)) added += 1;
-    }
+    const added = syncFromGoogle(tasks);
     return c.json({ added, todos: listTodos() });
   } catch (err) {
     return c.text(err instanceof Error ? err.message : "sync failed", 500);
@@ -251,8 +248,8 @@ app.get("/todos", (c) => {
 });
 
 app.post("/todos", async (c) => {
-  const { text } = await c.req.json<{ text: string }>();
-  return c.json(addTodo(text));
+  const { text, due, parentId } = await c.req.json<{ text: string; due?: string; parentId?: string }>();
+  return c.json(addTodo(text, { due, parentId }));
 });
 
 app.patch("/todos/:id", async (c) => {

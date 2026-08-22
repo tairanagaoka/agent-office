@@ -14,6 +14,8 @@ export type Todo = {
   agentId?: string;
   status?: "running" | "completed" | "failed";
   googleTaskId?: string;
+  parentId?: string; // 親Todoのローカルid(サブタスクの場合のみ)
+  due?: string; // "YYYY-MM-DD"
 };
 
 function readTodos(): Todo[] {
@@ -30,9 +32,9 @@ export function listTodos(): Todo[] {
   return readTodos();
 }
 
-export function addTodo(text: string): Todo {
+export function addTodo(text: string, opts?: { due?: string; parentId?: string }): Todo {
   const todos = readTodos();
-  const todo: Todo = { id: randomUUID(), text, done: false };
+  const todo: Todo = { id: randomUUID(), text, done: false, ...opts };
   todos.push(todo);
   writeTodos(todos);
   return todo;
@@ -51,12 +53,33 @@ export function deleteTodo(id: string): void {
   writeTodos(readTodos().filter((t) => t.id !== id));
 }
 
-// Google Tasksから取り込む。同じgoogleTaskIdが既にあれば何もしない(再同期での重複防止)
-export function addTodoFromGoogle(googleTaskId: string, text: string): Todo | null {
+// Google Tasksから一括で取り込む。既にgoogleTaskIdがあるものはスキップ(再同期での重複防止)。
+// サブタスクの親子関係(Google側のparent id)をローカルのparentIdに変換して維持する。
+export function syncFromGoogle(
+  tasks: { id: string; title: string; due?: string; parent?: string }[]
+): number {
   const todos = readTodos();
-  if (todos.some((t) => t.googleTaskId === googleTaskId)) return null;
-  const todo: Todo = { id: randomUUID(), text, done: false, googleTaskId };
-  todos.push(todo);
-  writeTodos(todos);
-  return todo;
+  const googleIdToLocalId = new Map(
+    todos.filter((t) => t.googleTaskId).map((t) => [t.googleTaskId as string, t.id])
+  );
+
+  const newTodos: Todo[] = [];
+  for (const task of tasks) {
+    if (googleIdToLocalId.has(task.id)) continue;
+    const todo: Todo = { id: randomUUID(), text: task.title, done: false, googleTaskId: task.id, due: task.due };
+    newTodos.push(todo);
+    googleIdToLocalId.set(task.id, todo.id);
+  }
+  // 親子付けは全件登録した後に解決する(親が今回のバッチで初めて登場するケースがあるため)
+  for (const todo of newTodos) {
+    const task = tasks.find((t) => t.id === todo.googleTaskId);
+    if (task?.parent) {
+      todo.parentId = googleIdToLocalId.get(task.parent);
+    }
+  }
+
+  if (newTodos.length > 0) {
+    writeTodos([...todos, ...newTodos]);
+  }
+  return newTodos.length;
 }

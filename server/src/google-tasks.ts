@@ -99,7 +99,12 @@ async function getValidAccessToken(): Promise<string> {
   return tokens.access_token;
 }
 
-export type GoogleTask = { id: string; title: string };
+export type GoogleTask = {
+  id: string;
+  title: string;
+  due?: string; // "YYYY-MM-DD"
+  parent?: string; // 親タスクのGoogle側ID(サブタスクの場合のみ)
+};
 
 export async function fetchIncompleteTasks(): Promise<GoogleTask[]> {
   const accessToken = await getValidAccessToken();
@@ -109,5 +114,10 @@ export async function fetchIncompleteTasks(): Promise<GoogleTask[]> {
   );
   if (!res.ok) throw new Error(`Google Tasks fetch failed: ${await res.text()}`);
   const data = await res.json();
-  return (data.items ?? []).map((item: { id: string; title: string }) => ({ id: item.id, title: item.title }));
+  return (data.items ?? []).map((item: { id: string; title: string; due?: string; parent?: string }) => ({
+    id: item.id,
+    title: item.title,
+    due: item.due?.slice(0, 10),
+    parent: item.parent,
+  }));
 }
