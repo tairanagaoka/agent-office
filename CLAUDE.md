@@ -89,13 +89,20 @@ npm workspaces構成。依存関係はルートで `npm install`、各ワーク�
 
 ## 資料（書斎、5-4）
 
-- `server/src/documents.ts`が担当。`runTask()`内でSDKの`assistant`メッセージから
+- `server/src/documents.ts`が担当。`startAgentTurn()`内でSDKの`assistant`メッセージから
   テキストを蓄積し、タスク完了時に`server/data/documents/{timestamp}-{id}.md`として
-  frontmatter(id/agent/prompt/timestamp)付きで保存する。ブラウザを閉じていても残る。
+  frontmatter(id/agent_id/agent/prompt/timestamp/project)付きで保存する。ブラウザを閉じていても残る。
 - フロントは`GET /documents`で読み込み、接続時とタスク完了ごとに再取得する
   （サーバー側が正、フロント側での組み立てはしない）。
 - Markdown表示は`react-markdown` + `remark-gfm`を使用（見出し・表・コードブロック等に対応）。
   `.chat-markdown`クラスで狭い吹き出し用に余白を詰めている。
+- **チャットパネルの会話ログはこのdocumentsから復元する（2026-08-22）**。`panel.lines`は
+  React stateのみで、以前はSSE再接続（スリープ復帰・ページ再読み込み・サーバー再起動）のたびに
+  空になっていた。`connect()`内で`GET /documents`の全件を取得し、`agent_id`とprojectId
+  （globalスコープなら`"self"`固定、projectスコープなら現在選択中のprojectId）で
+  エージェントごとにフィルタ・時系列ソートして初期`lines`に流し込むことで解消した。
+  `agent_id`フィールドが無い旧形式のファイル（このフィールド追加以前に保存されたもの）は
+  復元対象から除外される（資料タブでは引き続き閲覧可能）。
 
 ## 複数プロジェクト対応
 

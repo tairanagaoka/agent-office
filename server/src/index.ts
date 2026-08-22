@@ -273,7 +273,7 @@ function startAgentTurn(
       // 応答内容は書斎(server/data/documents/)に.mdファイルとして永続化する。
       // ブラウザを閉じていても、あるいはSSE接続が切れていても記録は残る。
       if (responseText.trim()) {
-        saveDocument(agent.name, prompt, responseText, effectiveProjectId);
+        saveDocument(agent.id, agent.name, prompt, responseText, effectiveProjectId);
       }
     }
     return { text: responseText, failed };

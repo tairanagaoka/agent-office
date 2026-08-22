@@ -61,6 +61,7 @@ type PanelState = {
 
 type DocumentEntry = {
   id: string;
+  agentId: string;
   agentName: string;
   prompt: string;
   text: string;
@@ -193,6 +194,7 @@ export function App() {
   const [newProjectPath, setNewProjectPath] = useState("");
   const [projectError, setProjectError] = useState("");
   const [meetingTopic, setMeetingTopic] = useState("");
+  const [meetingExpanded, setMeetingExpanded] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleSyncNote, setGoogleSyncNote] = useState(() => {
@@ -272,9 +274,27 @@ export function App() {
       });
       const list: Agent[] = await res.json();
       setAgentList(list);
+
+      // スリープ復帰やページ再読み込みでチャットが消えないよう、書斎(documents)に
+      // 保存済みの過去のやり取りからパネルの会話ログを復元する
+      const docsRes = await fetch(`${SERVER_URL}/documents`, {
+        headers: { "x-agent-office-token": token },
+      });
+      const allDocs: DocumentEntry[] = await docsRes.json();
+      setDocuments(allDocs);
+
       const initial: Record<string, PanelState> = {};
       for (const agent of list) {
-        initial[agent.id] = { name: agent.name, lines: [], status: "idle", prompt: "" };
+        const effectiveProjectId = agent.scope === "global" ? "self" : currentProjectId;
+        const history = allDocs
+          .filter((d) => d.agentId === agent.id && d.projectId === effectiveProjectId)
+          .sort((a, b) => a.timestamp - b.timestamp);
+        const lines: ChatLine[] = [];
+        for (const doc of history) {
+          if (doc.prompt) lines.push({ role: "user", text: doc.prompt });
+          lines.push({ role: agent.name, text: doc.text });
+        }
+        initial[agent.id] = { name: agent.name, lines, status: "idle", prompt: "" };
       }
       setPanels(initial);
 
@@ -292,7 +312,6 @@ export function App() {
       }
 
       await refreshDashboard();
-      await refreshDocuments();
     });
 
     es.addEventListener("message", (event) => {
@@ -363,6 +382,7 @@ export function App() {
     if (!sessionIdRef.current || !meetingTopic.trim()) return;
     const topic = meetingTopic;
     setMeetingTopic("");
+    setMeetingExpanded(false);
 
     const res = await fetch(`${SERVER_URL}/meeting`, {
       method: "POST",
@@ -490,11 +510,19 @@ export function App() {
         </div>
       )}
 
-      {connected && (
+      {connected && !meetingExpanded && (
+        <div style={{ marginBottom: "1rem" }}>
+          <button onClick={() => setMeetingExpanded(true)} style={buttonStyle}>
+            経営会議を開く
+          </button>
+        </div>
+      )}
+
+      {connected && meetingExpanded && (
         <div
           style={{
             display: "flex",
-            alignItems: "center",
+            flexDirection: "column",
             gap: "0.5rem",
             marginBottom: "1rem",
             padding: "0.75rem",
@@ -503,18 +531,30 @@ export function App() {
             borderRadius: "4px",
           }}
         >
-          <span style={{ fontSize: "0.85rem", color: THEME.textMuted }}>経営会議:</span>
-          <input
-            type="text"
-            placeholder="議題を入力(各部署に一斉に投げ、秘書がOpusでまとめます)"
+          <span style={{ fontSize: "0.85rem", color: THEME.textMuted }}>
+            経営会議の議題（各部署に一斉に投げ、秘書がOpusでまとめます。トークンを多く消費するので内容を確認してから開始してください）
+          </span>
+          <textarea
+            placeholder="議題を入力"
             value={meetingTopic}
             onChange={(e) => setMeetingTopic(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && holdMeeting()}
-            style={{ ...inputStyle, flex: 1 }}
+            rows={4}
+            style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
           />
-          <button onClick={holdMeeting} style={buttonStyle}>
-            会議を開く
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+            <button
+              onClick={() => {
+                setMeetingExpanded(false);
+                setMeetingTopic("");
+              }}
+              style={{ ...buttonStyle, background: "transparent" }}
+            >
+              キャンセル
+            </button>
+            <button onClick={holdMeeting} style={buttonStyle}>
+              会議開始
+            </button>
+          </div>
         </div>
       )}
 
@@ -689,12 +729,27 @@ export function App() {
           }
           departmentAgents[agent.department].push(agent.id);
         }
+        // 経営会議のまとめ役(秘書室)は見つけやすいよう常に先頭に固定表示する
+        const secretaryIndex = departmentOrder.indexOf("秘書室");
+        if (secretaryIndex > 0) {
+          departmentOrder.splice(secretaryIndex, 1);
+          departmentOrder.unshift("秘書室");
+        }
 
         return (
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-            {departmentOrder.map((department) => (
+            {departmentOrder.map((department) => {
+              const isSecretary = department === "秘書室";
+              return (
               <div key={department}>
-                <h2 style={{ fontSize: "1rem", color: THEME.textMuted, marginBottom: "0.5rem" }}>{department}</h2>
+                <h2 style={{ fontSize: "1rem", color: isSecretary ? THEME.accentHover : THEME.textMuted, marginBottom: "0.5rem" }}>
+                  {department}
+                  {isSecretary && (
+                    <span style={{ fontSize: "0.75rem", marginLeft: "0.5rem", color: THEME.textMuted }}>
+                      （経営会議のまとめ役）
+                    </span>
+                  )}
+                </h2>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
                   {departmentAgents[department].map((agentId) => {
                     const panel = panels[agentId];
@@ -707,7 +762,7 @@ export function App() {
                           flex: "1 1 280px",
                           minWidth: 280,
                           background: THEME.panelBg,
-                          border: `1px solid ${THEME.panelBorder}`,
+                          border: `1px solid ${isSecretary ? THEME.accent : THEME.panelBorder}`,
                           borderRadius: "4px",
                           padding: "1rem",
                         }}
@@ -814,7 +869,8 @@ export function App() {
                   })}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         );
       })()}

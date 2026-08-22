@@ -8,6 +8,7 @@ const DOCS_DIR = join(__dirname, "..", "data", "documents");
 
 export type DocumentEntry = {
   id: string;
+  agentId: string;
   agentName: string;
   prompt: string;
   text: string;
@@ -23,6 +24,7 @@ function toFrontmatter(doc: Omit<DocumentEntry, "text">): string {
   return [
     "---",
     `id: ${doc.id}`,
+    `agent_id: ${doc.agentId}`,
     `agent: ${doc.agentName}`,
     `prompt: ${JSON.stringify(doc.prompt)}`,
     `timestamp: ${doc.timestamp}`,
@@ -35,11 +37,19 @@ function toFrontmatter(doc: Omit<DocumentEntry, "text">): string {
 
 // 構想メモ5-4「書斎（ナレッジ蓄積）」の実体。セッションが消えても資料は
 // server/data/documents/ に.mdファイルとして残る。
-export function saveDocument(agentName: string, prompt: string, text: string, projectId: string): DocumentEntry {
+// チャットパネルの会話ログもこれを元に復元する（agent_idで紐付ける）ので、
+// フロント再接続・サーバー再起動・スリープ後の再オープンでも会話が消えない。
+export function saveDocument(
+  agentId: string,
+  agentName: string,
+  prompt: string,
+  text: string,
+  projectId: string
+): DocumentEntry {
   ensureDir();
   const id = randomUUID();
   const timestamp = Date.now();
-  const doc = { id, agentName, prompt, timestamp, projectId };
+  const doc = { id, agentId, agentName, prompt, timestamp, projectId };
   writeFileSync(join(DOCS_DIR, `${timestamp}-${id}.md`), toFrontmatter(doc) + text);
   return { ...doc, text };
 }
@@ -67,6 +77,9 @@ export function listDocuments(projectId?: string): DocumentEntry[] {
       }
       return {
         id: data.id ?? file,
+        // agent_idが無い古いファイルは復元先を特定できないので空文字にする
+        // (資料タブでは表示されるが、チャットパネルの復元対象からは除外される)
+        agentId: data.agent_id ?? "",
         agentName: data.agent ?? "",
         prompt,
         timestamp: Number(data.timestamp) || 0,
