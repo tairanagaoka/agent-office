@@ -186,20 +186,27 @@ app.get("/stream", (c) => {
   });
 });
 
-// /chat と Todoの「AIに振る」の両方から使う共通のタスク実行処理。
+type TaskHandle = {
+  taskId: string;
+  // 完了まで待てるようにしたPromise。/chatは無視(fire-and-forget)、
+  // /meetingは各部署の意見が出揃うまでこれをawaitしてから秘書を呼ぶ。
+  done: Promise<{ text: string; failed: boolean }>;
+};
+
+// /chat・Todoの「AIに振る」・経営会議の3つから使う共通のタスク実行処理。
 // projectIdは必須。scope:globalのエージェントは常にagent-office自身のディレクトリで動き、
 // scope:projectのエージェントは指定されたプロジェクトのディレクトリで動く。
 // todoIdを渡すと、完了・失敗時にそのTodoの状態を更新・永続化する。
-// 戻り値: 起動できればtaskId、その部署が既に稼働中ならnull（二重起動防止）、
+// 戻り値: 起動できればTaskHandle、その部署が既に稼働中ならnull（二重起動防止）、
 // 存在しないprojectIdならnullではなく例外を投げて呼び出し側で404にする。
-function runTask(
+function startAgentTurn(
   stream: SSEStreamingApi,
   sessionId: string,
   agentId: string,
   prompt: string,
   projectId: string,
   todoId?: string
-): string | null {
+): TaskHandle | null {
   const agent = agents.get(agentId);
   if (!agent) return null;
 
@@ -217,7 +224,7 @@ function runTask(
   const taskId = randomUUID();
   runningTasks.set(key, taskId);
 
-  (async () => {
+  const done = (async (): Promise<{ text: string; failed: boolean }> => {
     let failed = false;
     let responseText = "";
     try {
@@ -231,6 +238,7 @@ function runTask(
           permissionMode: "default",
           systemPrompt,
           cwd: effectiveCwd,
+          model: agent.model,
         },
       })) {
         if (message.type === "assistant") {
@@ -268,9 +276,10 @@ function runTask(
         saveDocument(agent.name, prompt, responseText, effectiveProjectId);
       }
     }
+    return { text: responseText, failed };
   })();
 
-  return taskId;
+  return { taskId, done };
 }
 
 app.post("/chat", async (c) => {
@@ -291,17 +300,68 @@ app.post("/chat", async (c) => {
     return c.text("Unknown project", 404);
   }
 
-  let taskId: string | null;
+  let handle: TaskHandle | null;
   try {
-    taskId = runTask(stream, sessionId, agentId, prompt, projectId);
+    handle = startAgentTurn(stream, sessionId, agentId, prompt, projectId);
   } catch (err) {
     return c.text(err instanceof Error ? err.message : "failed to start task", 404);
   }
-  if (!taskId) {
+  if (!handle) {
     return c.text("Agent is busy", 409);
   }
 
-  return c.json({ ok: true, taskId });
+  return c.json({ ok: true, taskId: handle.taskId });
+});
+
+// 経営会議: 議題を各部署の代表(部署ごとに最初の1エージェント、秘書自身は除く)へ一斉に投げ、
+// 全員の回答が出揃ったら秘書(Opus)がまとめて所長への提言を作る。
+// 各部署の回答・秘書の回答はどちらも通常のチャットと同じくSSE配信＆資料保存される。
+app.post("/meeting", async (c) => {
+  const { sessionId, prompt, projectId } = await c.req.json<{
+    sessionId: string;
+    prompt: string;
+    projectId: string;
+  }>();
+  const stream = sessions.get(sessionId);
+  if (!stream) return c.text("Unknown session", 400);
+  if (!getProject(projectId)) return c.text("Unknown project", 404);
+
+  const secretary = Array.from(agents.values()).find((a) => a.id === "secretary");
+  if (!secretary) return c.text("秘書エージェントが見つかりません", 500);
+
+  const representatives = new Map<string, string>(); // department -> agentId(最初の1人)
+  for (const agent of agents.values()) {
+    if (agent.id === secretary.id) continue;
+    if (!representatives.has(agent.department)) {
+      representatives.set(agent.department, agent.id);
+    }
+  }
+
+  const handles: { department: string; agentId: string; handle: TaskHandle }[] = [];
+  for (const [department, agentId] of representatives) {
+    const handle = startAgentTurn(stream, sessionId, agentId, prompt, projectId);
+    if (handle) handles.push({ department, agentId, handle });
+    // 既に稼働中の部署はスキップする(経営会議のために既存のやり取りを止めない)
+  }
+
+  (async () => {
+    const opinions = await Promise.all(
+      handles.map(async ({ department, handle }) => {
+        const { text } = await handle.done;
+        return { department, text };
+      })
+    );
+
+    const digest = opinions
+      .filter((o) => o.text.trim())
+      .map((o) => `## ${o.department}の意見\n${o.text}`)
+      .join("\n\n");
+
+    const secretaryPrompt = `経営会議の議題:「${prompt}」\n\n各部署からの回答:\n\n${digest}\n\n上記を踏まえて所長への提言をまとめてください。`;
+    startAgentTurn(stream, sessionId, secretary.id, secretaryPrompt, projectId);
+  })();
+
+  return c.json({ ok: true, agentIds: handles.map((h) => h.agentId) });
 });
 
 app.get("/documents", (c) => {
@@ -365,19 +425,19 @@ app.post("/todos/:id/assign", async (c) => {
   const todo = updateTodo(todoId, { agentId, status: "running" });
   if (!todo) return c.text("Unknown todo", 404);
 
-  let taskId: string | null;
+  let handle: TaskHandle | null;
   try {
-    taskId = runTask(stream, sessionId, agentId, todo.text, projectId, todoId);
+    handle = startAgentTurn(stream, sessionId, agentId, todo.text, projectId, todoId);
   } catch (err) {
     updateTodo(todoId, { status: undefined, agentId: undefined });
     return c.text(err instanceof Error ? err.message : "failed to start task", 404);
   }
-  if (!taskId) {
+  if (!handle) {
     updateTodo(todoId, { status: undefined, agentId: undefined });
     return c.text("Agent is busy", 409);
   }
 
-  return c.json({ ok: true, taskId });
+  return c.json({ ok: true, taskId: handle.taskId });
 });
 
 serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {

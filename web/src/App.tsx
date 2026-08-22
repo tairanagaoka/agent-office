@@ -192,6 +192,7 @@ export function App() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectPath, setNewProjectPath] = useState("");
   const [projectError, setProjectError] = useState("");
+  const [meetingTopic, setMeetingTopic] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleSyncNote, setGoogleSyncNote] = useState(() => {
@@ -358,6 +359,30 @@ export function App() {
     }
   };
 
+  const holdMeeting = async () => {
+    if (!sessionIdRef.current || !meetingTopic.trim()) return;
+    const topic = meetingTopic;
+    setMeetingTopic("");
+
+    const res = await fetch(`${SERVER_URL}/meeting`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ sessionId: sessionIdRef.current, prompt: topic, projectId: currentProjectId }),
+    });
+    if (!res.ok) return;
+
+    // 実際に起動した部署のパネルだけ、議題をuser発言として表示し実行中にする
+    // (secretaryは各部署の回答が出揃ってからサーバー側で起動するため、ここでは対象外)
+    const { agentIds }: { agentIds: string[] } = await res.json();
+    for (const agentId of agentIds) {
+      updatePanel(agentId, (p) => ({
+        ...p,
+        status: "running",
+        lines: [...p.lines, { role: "user", text: `[経営会議] ${topic}` }],
+      }));
+    }
+  };
+
   const RATE_LIMIT_LABELS: Record<string, string> = {
     five_hour: "5時間ウィンドウ",
     seven_day: "7日ウィンドウ",
@@ -462,6 +487,34 @@ export function App() {
             プロジェクトを登録
           </button>
           {projectError && <span style={{ color: THEME.error, fontSize: "0.8rem" }}>{projectError}</span>}
+        </div>
+      )}
+
+      {connected && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            marginBottom: "1rem",
+            padding: "0.75rem",
+            background: THEME.panelBg,
+            border: `1px solid ${THEME.panelBorder}`,
+            borderRadius: "4px",
+          }}
+        >
+          <span style={{ fontSize: "0.85rem", color: THEME.textMuted }}>経営会議:</span>
+          <input
+            type="text"
+            placeholder="議題を入力(各部署に一斉に投げ、秘書がOpusでまとめます)"
+            value={meetingTopic}
+            onChange={(e) => setMeetingTopic(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && holdMeeting()}
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button onClick={holdMeeting} style={buttonStyle}>
+            会議を開く
+          </button>
         </div>
       )}
 

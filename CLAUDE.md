@@ -25,6 +25,8 @@ Claude Code の複数エージェントを「レトロなドット絵オフィ�
   ダッシュボード」にする方針のもと、部署を8つ（実装/テスト/レビュー/調査/企画/広報/総務/経理）に
   拡張し、実装系の部署は選択中のプロジェクト（agent-office自身とは別のディレクトリでもよい）に
   向けて動くようにした（詳細は下記「複数プロジェクト対応」）
+- **経営会議機能を追加（2026-08-22）**。各部署に一斉に意見を聞き、Opusで動く秘書エージェントが
+  提言にまとめる機能。部署は秘書室を加えて9つになった（詳細は下記「経営会議」）
 
 ## 構成
 
@@ -105,12 +107,35 @@ npm workspaces構成。依存関係はルートで `npm install`、各ワーク�
   agent-office自身のディレクトリで動くか、選択中プロジェクトのディレクトリで動くかを宣言する。
   未指定/パース失敗時は`global`にフォールバックする（安全側）。現状`life`(総務部)のみ`global`。
 - 並行実行のロックキーは`` `${sessionId}:${projectId}:${agentId}` ``（`server/src/index.ts`の
-  `runTask()`内）。projectIdを含めることで、同じ部署が別プロジェクトでは並行して動ける。
+  `startAgentTurn()`内）。projectIdを含めることで、同じ部署が別プロジェクトでは並行して動ける。
 - **プロジェクト登録はユーザーがUIのフォームから行う操作のみ**（`POST /projects`）。エージェントが
   自分でプロジェクトを追加したり任意のパスを選んだりする経路(MCPツール等)は作らないこと。
   登録時は`fs.existsSync && isDirectory`で検証し、存在しないパスは400で拒否する。
 - `PROJECT_ROOT`（agent-office自身の設置場所。`templates/agents/`や`server/data/`を探す基準）と、
   各`Project.path`（ユーザーが登録した個別プロジェクトのパス）は別概念。混同しないこと。
+
+## 経営会議（Management Meeting）
+
+- `startAgentTurn()`は`taskId`だけでなく`done: Promise<{text, failed}>`も返す`TaskHandle`を返す
+  （`server/src/index.ts`）。通常の`/chat`はこれまで通り`.done`を無視した fire-and-forget、
+  `/meeting`だけが複数の`.done`を`await`して後続処理（秘書への引き継ぎ）に使う。
+- `POST /meeting {sessionId, prompt, projectId}`は、`agents`マップを走査して**部署(`department`)ごとに
+  最初の1エージェントだけ**を代表として選び（秘書室自身は除外）、同じ`prompt`で全員を並行実行する。
+  各代表の応答は普段通り自分の既存チャットパネルにSSEで流れるので、会議専用のUIは作っていない。
+- 全代表の`.done`が揃った後（バックグラウンドの即時実行関数内）、`## {部署名}の意見\n{本文}`形式で
+  ダイジェストを組み立て、`秘書`エージェント（`templates/agents/secretary.md`）に
+  「経営会議の議題:...」「各部署からの回答:...」「上記を踏まえて所長への提言をまとめてください」という
+  プロンプトで引き継ぐ。秘書の応答も他部署と同じ仕組みで自分のパネルに表示される。
+- **`model:` frontmatterフィールド**（`server/src/agents.ts`の`AgentDef`に追加）は`query()`の
+  `options.model`にそのまま渡る（`'opus'`/`'sonnet'`等のエイリアスを受け付ける）。未指定ならSDK既定
+  （Sonnet相当）。秘書エージェントだけ`model: opus`を指定し、複数部署の意見を俯瞰する役割に
+  合わせて上位モデルを使う。
+- 部署の代表選出は「`agents`マップに登録された順で部署ごとに最初の1人」なので、開発室のように
+  部署内に複数ロール（実装/テスト/レビュー/調査）がいる場合は`templates/agents/`内のファイル順
+  （＝読み込み順）で決まる代表1人だけが会議に出る。全ロールを会議に出したい場合は将来的な拡張が必要
+  （現状はスコープ外、代表1人で十分という判断）。
+- `GET /dashboard`の実行中エージェント抽出は`key.split(":")[2]`（キーは
+  `` `${sessionId}:${projectId}:${agentId}` ``の3分割なので、agentIdはindex 2）。
 
 ## 実装上の注意
 

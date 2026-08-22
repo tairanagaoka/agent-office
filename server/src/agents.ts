@@ -14,6 +14,7 @@ export type AgentDef = {
   allowedTools: string[];
   scope: AgentScope;
   department: string;
+  model?: string;
 };
 
 // 未指定時の既定値。8章の方針(生活サポート・家計はRead/WebSearchのみ)に合わせ、安全側に倒す
@@ -55,6 +56,8 @@ function parseAgentFile(rawInput: string, fallbackId: string): AgentDef {
     scope: data.scope === "project" ? "project" : data.scope === "global" ? "global" : DEFAULT_SCOPE,
     // 未指定なら自分の名前を部署名扱いにする(単独部署のエージェントはこれで十分)
     department: data.department ?? data.name ?? fallbackId,
+    // 未指定ならSDKのデフォルト(通常はSonnet)に任せる('opus'等のエイリアスを指定可能)
+    model: data.model || undefined,
   };
 }
 
