@@ -15,8 +15,12 @@ export type AgentDef = {
 // 未指定時の既定値。8章の方針(生活サポート・家計はRead/WebSearchのみ)に合わせ、安全側に倒す
 const DEFAULT_TOOLS = ["Read", "WebSearch"];
 
-// Markdownのfrontmatter（--- id: ... / name: ... / tools: ... ---）を簡易パースする
-function parseAgentFile(raw: string, fallbackId: string): AgentDef {
+// Markdownのfrontmatter（--- id: ... / name: ... / tools: ... ---）を簡易パースする。
+// Windows(core.autocrlf=true)ではgit checkout時にCRLFへ変換されうるため、
+// 改行コードを先に正規化してから判定する（そうしないと正規表現がマッチせず、
+// 全エージェントが黙ってデフォルト権限にフォールバックしてしまう）。
+function parseAgentFile(rawInput: string, fallbackId: string): AgentDef {
+  const raw = rawInput.replace(/\r\n/g, "\n");
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (!match) {
     return { id: fallbackId, name: fallbackId, systemPrompt: raw.trim(), allowedTools: DEFAULT_TOOLS };
