@@ -41,31 +41,75 @@ type Dashboard = {
   rateLimits: RateLimitInfo[];
 };
 
-// 机とブラウン管モニターのドット絵風アイコン。稼働状態で画面の光り方が変わる。
-// 画像素材を使わずSVGの矩形だけで組む(crispEdgesでアンチエイリアスを切ってドット感を出す)
+// 机・ブラウン管モニター・社員アバターのドット絵風アイコン。
+// 画像素材を使わずSVGの矩形だけで組む(crispEdgesでアンチエイリアスを切ってドット感を出す)。
+// 実行中はアバターの腕がキーボードを叩くようにアニメーションする。
 function DeskIcon({ status }: { status: "idle" | "running" | "failed" }) {
   const screenColor = status === "running" ? "#7CFC9E" : status === "failed" ? "#ff6b6b" : "#3a3a3a";
   const glow = status === "idle" ? "none" : `0 0 6px ${screenColor}`;
+  const isRunning = status === "running";
 
   return (
     <svg
-      width="56"
+      width="76"
       height="48"
-      viewBox="0 0 56 48"
+      viewBox="0 0 76 48"
       shapeRendering="crispEdges"
       style={{ display: "block" }}
     >
+      <style>
+        {`
+          @keyframes typingBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-1.5px); }
+          }
+          .typing-arm { animation: typingBounce 0.5s ease-in-out infinite; }
+        `}
+      </style>
+
       {/* 机 */}
-      <rect x="4" y="38" width="48" height="6" fill="#8a6540" />
+      <rect x="4" y="38" width="68" height="6" fill="#8a6540" />
       <rect x="6" y="44" width="4" height="4" fill="#5c4326" />
-      <rect x="46" y="44" width="4" height="4" fill="#5c4326" />
+      <rect x="66" y="44" width="4" height="4" fill="#5c4326" />
+
+      {/* 社員アバター */}
+      <rect x="10" y="14" width="8" height="3" fill="#3a2a1a" />
+      <rect x="10" y="14" width="8" height="8" fill="#e8b98a" />
+      <rect x="8" y="22" width="12" height="12" fill="#4a6fa5" />
+      <rect x="6" y="35" width="18" height="3" fill="#333" />
+      <rect
+        x="4"
+        y="30"
+        width="6"
+        height="5"
+        fill="#e8b98a"
+        className={isRunning ? "typing-arm" : undefined}
+        style={isRunning ? { animationDelay: "0s" } : undefined}
+      />
+      <rect
+        x="20"
+        y="30"
+        width="6"
+        height="5"
+        fill="#e8b98a"
+        className={isRunning ? "typing-arm" : undefined}
+        style={isRunning ? { animationDelay: "0.25s" } : undefined}
+      />
+
       {/* モニター本体 */}
-      <rect x="14" y="10" width="28" height="22" fill="#d8d2c2" />
-      <rect x="24" y="32" width="8" height="4" fill="#b8b2a2" />
+      <rect x="34" y="10" width="28" height="22" fill="#d8d2c2" />
+      <rect x="44" y="32" width="8" height="4" fill="#b8b2a2" />
       {/* 画面(稼働状態で色が変わる) */}
-      <rect x="18" y="14" width="20" height="14" fill={screenColor} style={{ filter: glow !== "none" ? `drop-shadow(${glow})` : "none" }} />
+      <rect
+        x="38"
+        y="14"
+        width="20"
+        height="14"
+        fill={screenColor}
+        style={{ filter: glow !== "none" ? `drop-shadow(${glow})` : "none" }}
+      />
       {/* 電源ランプ */}
-      <rect x="38" y="28" width="2" height="2" fill={status === "idle" ? "#666" : "#ffdd55"} />
+      <rect x="58" y="28" width="2" height="2" fill={status === "idle" ? "#666" : "#ffdd55"} />
     </svg>
   );
 }
