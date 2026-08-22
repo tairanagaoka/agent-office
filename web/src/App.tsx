@@ -48,7 +48,6 @@ export function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleSyncNote, setGoogleSyncNote] = useState("");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "chat">("chat");
   const sessionIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const hasAutoConnectedRef = useRef(false);
@@ -214,50 +213,23 @@ export function App() {
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
+            justifyContent: "flex-end",
             marginBottom: "1rem",
-            borderBottom: "1px solid #ccc",
+            fontSize: "0.8rem",
           }}
         >
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            {(
-              [
-                ["chat", "チャット"],
-                ["dashboard", "ホワイトボード"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setActiveTab(key)}
-                style={{
-                  padding: "0.5rem 1rem",
-                  border: "none",
-                  borderBottom: activeTab === key ? "2px solid #4285f4" : "2px solid transparent",
-                  background: "none",
-                  fontWeight: activeTab === key ? "bold" : "normal",
-                  cursor: "pointer",
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ fontSize: "0.8rem", paddingBottom: "0.5rem" }}>
-            {googleConnected ? (
-              <>
-                <button onClick={syncGoogleTasks}>Todoを同期</button>
-                {googleSyncNote && <span style={{ color: "#666", marginLeft: "0.5rem" }}>{googleSyncNote}</span>}
-              </>
-            ) : (
-              <button onClick={connectGoogle}>Google Tasksと連携する</button>
-            )}
-          </div>
+          {googleConnected ? (
+            <>
+              <button onClick={syncGoogleTasks}>Todoを同期</button>
+              {googleSyncNote && <span style={{ color: "#666", marginLeft: "0.5rem" }}>{googleSyncNote}</span>}
+            </>
+          ) : (
+            <button onClick={connectGoogle}>Google Tasksと連携する</button>
+          )}
         </div>
       )}
 
-      {connected && activeTab === "dashboard" && dashboard && (
+      {connected && dashboard && (
         <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
           <h2 style={{ fontSize: "1.1rem" }}>ホワイトボード</h2>
 
@@ -315,7 +287,7 @@ export function App() {
         </div>
       )}
 
-      {connected && activeTab === "chat" && (
+      {connected && (
         <div style={{ display: "flex", gap: "1rem" }}>
           {Object.entries(panels).map(([agentId, panel]) => (
             <div key={agentId} style={{ flex: 1, border: "1px solid #ccc", padding: "1rem" }}>
