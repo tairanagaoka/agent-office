@@ -25,6 +25,26 @@ const agents = loadAgents();
 // `${sessionId}:${agentId}` -> taskId。1部署につき同時に1タスクまで（二重起動防止）
 const runningTasks = new Map<string, string>();
 
+// M6ダッシュボード用の集計（プロセス起動からの累計。永続化はしない）
+type AgentStats = {
+  totalCostUsd: number;
+  totalTokens: number;
+  totalWaitMs: number;
+  tasksCompleted: number;
+  tasksFailed: number;
+};
+const stats = new Map<string, AgentStats>();
+
+function recordResult(agentId: string, message: { is_error?: boolean; total_cost_usd?: number; duration_api_ms?: number; usage?: { input_tokens?: number; output_tokens?: number } }) {
+  const s = stats.get(agentId) ?? { totalCostUsd: 0, totalTokens: 0, totalWaitMs: 0, tasksCompleted: 0, tasksFailed: 0 };
+  s.totalCostUsd += message.total_cost_usd ?? 0;
+  s.totalTokens += (message.usage?.input_tokens ?? 0) + (message.usage?.output_tokens ?? 0);
+  s.totalWaitMs += message.duration_api_ms ?? 0;
+  if (message.is_error) s.tasksFailed += 1;
+  else s.tasksCompleted += 1;
+  stats.set(agentId, s);
+}
+
 const app = new Hono();
 
 app.use(
@@ -98,13 +118,15 @@ function runTask(
           systemPrompt: agent.systemPrompt,
         },
       })) {
-        if (message.type === "result" && "is_error" in message && message.is_error) {
-          failed = true;
+        if (message.type === "result") {
+          failed = "is_error" in message && !!message.is_error;
+          recordResult(agentId, message);
         }
         await stream.writeSSE({ event: "message", data: JSON.stringify({ taskId, agentId, todoId, message }) });
       }
     } catch {
       failed = true;
+      recordResult(agentId, { is_error: true });
       await stream.writeSSE({
         event: "message",
         data: JSON.stringify({
@@ -145,6 +167,26 @@ app.post("/chat", async (c) => {
   }
 
   return c.json({ ok: true, taskId });
+});
+
+app.get("/dashboard", (c) => {
+  const runningAgentIds = new Set(Array.from(runningTasks.keys()).map((key) => key.split(":")[1]));
+  const perAgent = Array.from(agents.values()).map(({ id, name }) => {
+    const s = stats.get(id) ?? { totalCostUsd: 0, totalTokens: 0, totalWaitMs: 0, tasksCompleted: 0, tasksFailed: 0 };
+    return { agentId: id, name, running: runningAgentIds.has(id), ...s };
+  });
+  const overall = perAgent.reduce(
+    (acc, a) => ({
+      totalCostUsd: acc.totalCostUsd + a.totalCostUsd,
+      totalTokens: acc.totalTokens + a.totalTokens,
+      totalWaitMs: acc.totalWaitMs + a.totalWaitMs,
+      tasksCompleted: acc.tasksCompleted + a.tasksCompleted,
+      tasksFailed: acc.tasksFailed + a.tasksFailed,
+      runningCount: acc.runningCount + (a.running ? 1 : 0),
+    }),
+    { totalCostUsd: 0, totalTokens: 0, totalWaitMs: 0, tasksCompleted: 0, tasksFailed: 0, runningCount: 0 }
+  );
+  return c.json({ overall, perAgent });
 });
 
 app.get("/todos", (c) => {

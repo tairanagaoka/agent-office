@@ -28,6 +28,19 @@ type Todo = {
   status?: "running" | "completed" | "failed";
 };
 
+type AgentStats = {
+  totalCostUsd: number;
+  totalTokens: number;
+  totalWaitMs: number;
+  tasksCompleted: number;
+  tasksFailed: number;
+};
+
+type Dashboard = {
+  overall: AgentStats & { runningCount: number };
+  perAgent: (AgentStats & { agentId: string; name: string; running: boolean })[];
+};
+
 export function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [connected, setConnected] = useState(false);
@@ -35,10 +48,16 @@ export function App() {
   const [agentList, setAgentList] = useState<Agent[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [newTodoText, setNewTodoText] = useState("");
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const authHeaders = { "x-agent-office-token": token };
+
+  const refreshDashboard = async () => {
+    const res = await fetch(`${SERVER_URL}/dashboard`, { headers: authHeaders });
+    setDashboard(await res.json());
+  };
 
   const updatePanel = (agentId: string, update: (panel: PanelState) => PanelState) => {
     setPanels((prev) => (prev[agentId] ? { ...prev, [agentId]: update(prev[agentId]) } : prev));
@@ -65,6 +84,8 @@ export function App() {
 
       const todosRes = await fetch(`${SERVER_URL}/todos`, { headers: { "x-agent-office-token": token } });
       setTodos(await todosRes.json());
+
+      await refreshDashboard();
     });
 
     es.addEventListener("message", (event) => {
@@ -95,6 +116,7 @@ export function App() {
             )
           );
         }
+        refreshDashboard();
       }
     });
 
@@ -181,6 +203,44 @@ export function App() {
             style={{ width: "70%" }}
           />
           <button onClick={connect}>接続</button>
+        </div>
+      )}
+
+      {connected && dashboard && (
+        <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
+          <h2 style={{ fontSize: "1.1rem" }}>ダッシュボード</h2>
+          <p style={{ fontSize: "0.9rem" }}>
+            稼働中: {dashboard.overall.runningCount} / 完了: {dashboard.overall.tasksCompleted} / 失敗:{" "}
+            {dashboard.overall.tasksFailed} / トークン合計: {dashboard.overall.totalTokens} / 概算コスト: $
+            {dashboard.overall.totalCostUsd.toFixed(4)} / 待ち時間合計:{" "}
+            {(dashboard.overall.totalWaitMs / 1000).toFixed(1)}秒
+          </p>
+          <table style={{ fontSize: "0.85rem", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", paddingRight: "1rem" }}>部署</th>
+                <th style={{ textAlign: "left", paddingRight: "1rem" }}>稼働状況</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem" }}>トークン</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem" }}>コスト($)</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem" }}>待ち時間(秒)</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem" }}>完了</th>
+                <th style={{ textAlign: "right" }}>失敗</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dashboard.perAgent.map((a) => (
+                <tr key={a.agentId}>
+                  <td style={{ paddingRight: "1rem" }}>{a.name}</td>
+                  <td style={{ paddingRight: "1rem" }}>{a.running ? "実行中" : "待機"}</td>
+                  <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.totalTokens}</td>
+                  <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.totalCostUsd.toFixed(4)}</td>
+                  <td style={{ textAlign: "right", paddingRight: "1rem" }}>{(a.totalWaitMs / 1000).toFixed(1)}</td>
+                  <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.tasksCompleted}</td>
+                  <td style={{ textAlign: "right" }}>{a.tasksFailed}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
