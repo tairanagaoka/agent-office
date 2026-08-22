@@ -69,6 +69,16 @@ type PanelState = {
   lines: ChatLine[];
   status: "idle" | "running" | "failed";
   prompt: string;
+  responseBuffer: string;
+  lastPrompt: string;
+};
+
+type DocumentEntry = {
+  id: string;
+  agentName: string;
+  prompt: string;
+  text: string;
+  timestamp: number;
 };
 
 type AgentStats = {
@@ -169,6 +179,8 @@ export function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [connected, setConnected] = useState(false);
   const [panels, setPanels] = useState<Record<string, PanelState>>({});
+  const [documents, setDocuments] = useState<DocumentEntry[]>([]);
+  const [activeTab, setActiveTab] = useState<"chat" | "documents" | "dashboard">("chat");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleSyncNote, setGoogleSyncNote] = useState(() => {
@@ -219,7 +231,14 @@ export function App() {
       const list: Agent[] = await res.json();
       const initial: Record<string, PanelState> = {};
       for (const agent of list) {
-        initial[agent.id] = { name: agent.name, lines: [], status: "idle", prompt: "" };
+        initial[agent.id] = {
+          name: agent.name,
+          lines: [],
+          status: "idle",
+          prompt: "",
+          responseBuffer: "",
+          lastPrompt: "",
+        };
       }
       setPanels(initial);
 
@@ -248,14 +267,30 @@ export function App() {
           updatePanel(agentId, (panel) => ({
             ...panel,
             lines: [...panel.lines, { role: panel.name, text }],
+            responseBuffer: panel.responseBuffer + text,
           }));
         }
       } else if (message.type === "result") {
-        updatePanel(agentId, (panel) => ({
-          ...panel,
-          status: message.is_error ? "failed" : "idle",
-          lines: [...panel.lines, { role: "system", text: `完了: ${message.subtype}` }],
-        }));
+        updatePanel(agentId, (panel) => {
+          if (panel.responseBuffer.trim()) {
+            setDocuments((prev) => [
+              {
+                id: `${Date.now()}-${agentId}`,
+                agentName: panel.name,
+                prompt: panel.lastPrompt,
+                text: panel.responseBuffer,
+                timestamp: Date.now(),
+              },
+              ...prev,
+            ]);
+          }
+          return {
+            ...panel,
+            status: message.is_error ? "failed" : "idle",
+            lines: [...panel.lines, { role: "system", text: `完了: ${message.subtype}` }],
+            responseBuffer: "",
+          };
+        });
         refreshDashboard();
       }
     });
@@ -286,6 +321,8 @@ export function App() {
       status: "running",
       prompt: "",
       lines: [...p.lines, { role: "user", text: prompt }],
+      responseBuffer: "",
+      lastPrompt: prompt,
     }));
 
     const res = await fetch(`${SERVER_URL}/chat`, {
@@ -343,21 +380,49 @@ export function App() {
         <div
           style={{
             display: "flex",
-            justifyContent: "flex-end",
+            justifyContent: "space-between",
+            alignItems: "center",
             marginBottom: "1rem",
-            fontSize: "0.8rem",
+            borderBottom: "1px solid #ccc",
           }}
         >
-          {googleConnected ? (
-            <button onClick={syncGoogleTasks}>Todoを同期</button>
-          ) : (
-            <button onClick={connectGoogle}>Google Tasksと連携する</button>
-          )}
-          {googleSyncNote && <span style={{ color: "#666", marginLeft: "0.5rem" }}>{googleSyncNote}</span>}
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            {(
+              [
+                ["chat", "チャット"],
+                ["documents", "資料"],
+                ["dashboard", "ホワイトボード"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                style={{
+                  padding: "0.5rem 1rem",
+                  border: "none",
+                  borderBottom: activeTab === key ? "2px solid #4285f4" : "2px solid transparent",
+                  background: "none",
+                  fontWeight: activeTab === key ? "bold" : "normal",
+                  cursor: "pointer",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ fontSize: "0.8rem", paddingBottom: "0.5rem" }}>
+            {googleConnected ? (
+              <button onClick={syncGoogleTasks}>Todoを同期</button>
+            ) : (
+              <button onClick={connectGoogle}>Google Tasksと連携する</button>
+            )}
+            {googleSyncNote && <span style={{ color: "#666", marginLeft: "0.5rem" }}>{googleSyncNote}</span>}
+          </div>
         </div>
       )}
 
-      {connected && dashboard && (
+      {connected && activeTab === "dashboard" && dashboard && (
         <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
           <h2 style={{ fontSize: "1.1rem" }}>ホワイトボード</h2>
 
@@ -415,7 +480,26 @@ export function App() {
         </div>
       )}
 
-      {connected && (
+      {connected && activeTab === "documents" && (
+        <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
+          <h2 style={{ fontSize: "1.1rem" }}>資料</h2>
+          {documents.length === 0 ? (
+            <p style={{ fontSize: "0.9rem", color: "#999" }}>まだ資料はありません。</p>
+          ) : (
+            documents.map((doc) => (
+              <div key={doc.id} style={{ border: "1px solid #eee", borderRadius: "8px", padding: "1rem", marginBottom: "1rem" }}>
+                <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: "0.5rem" }}>
+                  <strong>{doc.agentName}</strong> ・ {new Date(doc.timestamp).toLocaleString("ja-JP")}
+                  {doc.prompt && <> ・ 依頼内容: {doc.prompt}</>}
+                </div>
+                {renderMarkdownLite(doc.text)}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {connected && activeTab === "chat" && (
         <div style={{ display: "flex", gap: "1rem" }}>
           {Object.entries(panels).map(([agentId, panel]) => (
             <div key={agentId} style={{ flex: 1, border: "1px solid #ccc", padding: "1rem" }}>
