@@ -8,7 +8,8 @@ import { cors } from "hono/cors";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadAgents } from "./agents.js";
-import { addTodo, deleteTodo, listTodos, updateTodo } from "./todos.js";
+import { addTodo, addTodoFromGoogle, deleteTodo, listTodos, updateTodo } from "./todos.js";
+import { buildAuthUrl, exchangeCode, fetchIncompleteTasks, isConnected as isGoogleConnected } from "./google-tasks.js";
 
 const PORT = 3001;
 const DEV_ORIGIN = "http://localhost:5173";
@@ -69,7 +70,13 @@ app.use(
   })
 );
 
+// GoogleのOAuthコールバックはブラウザの外部リダイレクトで届くため、
+// x-agent-office-tokenを持ってこられない。この2つだけ認証ミドルウェアの対象外にし、
+// 代わりにstateパラメータでCSRFを防ぐ(下のルート側で検証する)。
 app.use("*", async (c, next) => {
+  if (c.req.path === "/auth/google" || c.req.path === "/auth/google/callback") {
+    return next();
+  }
   const origin = c.req.header("origin");
   if (origin && origin !== DEV_ORIGIN) {
     return c.text("Forbidden", 403);
@@ -80,6 +87,41 @@ app.use("*", async (c, next) => {
     return c.text("Unauthorized", 401);
   }
   await next();
+});
+
+let pendingGoogleOAuthState: string | null = null;
+
+app.get("/auth/google", (c) => {
+  pendingGoogleOAuthState = randomBytes(16).toString("hex");
+  return c.redirect(buildAuthUrl(pendingGoogleOAuthState));
+});
+
+app.get("/auth/google/callback", async (c) => {
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  if (!code || !state || state !== pendingGoogleOAuthState) {
+    return c.text("Invalid OAuth state", 400);
+  }
+  pendingGoogleOAuthState = null;
+  await exchangeCode(code);
+  return c.redirect(DEV_ORIGIN);
+});
+
+app.get("/auth/google/status", (c) => {
+  return c.json({ connected: isGoogleConnected() });
+});
+
+app.post("/sync/google-tasks", async (c) => {
+  try {
+    const tasks = await fetchIncompleteTasks();
+    let added = 0;
+    for (const task of tasks) {
+      if (addTodoFromGoogle(task.id, task.title)) added += 1;
+    }
+    return c.json({ added, todos: listTodos() });
+  } catch (err) {
+    return c.text(err instanceof Error ? err.message : "sync failed", 500);
+  }
 });
 
 app.get("/agents", (c) => {

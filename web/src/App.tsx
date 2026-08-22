@@ -49,10 +49,23 @@ export function App() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [newTodoText, setNewTodoText] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [googleConnected, setGoogleConnected] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const authHeaders = { "x-agent-office-token": token };
+
+  const connectGoogle = () => {
+    window.location.href = `${SERVER_URL}/auth/google`;
+  };
+
+  const syncGoogleTasks = async () => {
+    const res = await fetch(`${SERVER_URL}/sync/google-tasks`, { method: "POST", headers: authHeaders });
+    if (res.ok) {
+      const data = await res.json();
+      setTodos(data.todos);
+    }
+  };
 
   const refreshDashboard = async () => {
     const res = await fetch(`${SERVER_URL}/dashboard`, { headers: authHeaders });
@@ -84,6 +97,11 @@ export function App() {
 
       const todosRes = await fetch(`${SERVER_URL}/todos`, { headers: { "x-agent-office-token": token } });
       setTodos(await todosRes.json());
+
+      const googleStatusRes = await fetch(`${SERVER_URL}/auth/google/status`, {
+        headers: { "x-agent-office-token": token },
+      });
+      setGoogleConnected((await googleStatusRes.json()).connected);
 
       await refreshDashboard();
     });
@@ -246,7 +264,18 @@ export function App() {
 
       {connected && (
         <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
-          <h2 style={{ fontSize: "1.1rem" }}>Todo</h2>
+          <h2 style={{ fontSize: "1.1rem" }}>
+            Todo{" "}
+            {googleConnected ? (
+              <button onClick={syncGoogleTasks} style={{ fontSize: "0.8rem" }}>
+                Googleと同期
+              </button>
+            ) : (
+              <button onClick={connectGoogle} style={{ fontSize: "0.8rem" }}>
+                Googleと連携する
+              </button>
+            )}
+          </h2>
           <div style={{ marginBottom: "0.5rem" }}>
             <input
               type="text"

@@ -21,7 +21,8 @@ Claude Code の複数エージェントを「レトロなドット絵オフィ�
 
 ```
 server/            Node.js + Hono + @anthropic-ai/claude-agent-sdk
-server/data/       Todoの永続化(todos.json)。gitignore対象、実行時に自動生成
+server/data/       Todo(todos.json)・Google OAuthトークン(google-auth.json)の永続化。
+                   gitignore対象、実行時に自動生成
 web/               React + TypeScript + Vite
 templates/agents/  エージェント定義(Markdown, frontmatter: id/name + システムプロンプト本文)
 docs/concept.md    構想メモ・マイルストーン記録
@@ -56,6 +57,11 @@ npm workspaces構成。依存関係はルートで `npm install`、各ワーク�
   **`Task`（サブエージェント起動）を許可リストに含めると、制限の緩いサブエージェントに委任して
   Bash等の制限を回避される**ので、部署エージェントには基本含めない。開発エージェントは`cwd`を
   プロジェクトルート(`PROJECT_ROOT`)に固定している。
+- **Google Tasks連携**は一方向(Google→agent-officeの取り込みのみ、`tasks.readonly`スコープ)。
+  `/auth/google`と`/auth/google/callback`だけは認証ミドルウェアの対象外（Googleからの外部
+  リダイレクトが`x-agent-office-token`を持ってこられないため）。代わりに`state`パラメータで
+  CSRFを防いでいる。この2ルート以外を対象外に広げないこと。設定は`server/.env`の
+  `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`（READMEのセットアップ手順を参照）。
 
 ## 実装上の注意
 

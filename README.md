@@ -7,15 +7,17 @@ Claude Code の複数エージェントを「レトロなドット絵オフィ�
 
 ## 現在の状態
 
-- **M1: 達成** — 1エージェントとブラウザでチャットできる（SSEでストリーミング応答）
-- M2以降（複数エージェント切り替え、並行実行、進捗表示、Todo連携、ダッシュボード、ドット絵化）は未着手
+**v1.0（実用完成）達成。** 複数エージェント切り替え・並行実行・Todo連携・ダッシュボードまで動作する。
+残るはM7（ドット絵オフィス＋環境音、v1.5）。詳細は [docs/concept.md](docs/concept.md) の9-2マイルストーン表を参照。
 
 ## 構成
 
 ```
-server/   Node.js + Hono + @anthropic-ai/claude-agent-sdk
-web/      React + TypeScript + Vite
-docs/     構想メモ
+server/            Node.js + Hono + @anthropic-ai/claude-agent-sdk
+server/data/       Todo・Google連携トークンの永続化（gitignore対象、実行時に自動生成）
+web/               React + TypeScript + Vite
+templates/agents/  エージェント定義（Markdown, frontmatter: id/name/tools + システムプロンプト本文）
+docs/              構想メモ
 ```
 
 npm workspaces構成（ルートの `package.json` で `server`/`web` を管理）。
@@ -60,6 +62,25 @@ npm run dev -w web      # http://localhost:5173
 ```
 
 `http://localhost:5173` を開き、`AGENT_OFFICE_TOKEN`の値を入力して接続してください（一度接続すればブラウザに記憶されます）。
+
+### 4. Google Tasks連携（任意）
+
+Google Tasksの未完了タスクをTodo一覧に取り込めます（一方向: Google→agent-office。完了・削除の逆反映はしません）。
+
+1. [Google Cloud Console](https://console.cloud.google.com/) で新しいプロジェクトを作成
+2. 「APIとサービス」→「ライブラリ」で **Google Tasks API** を有効化
+3. 「APIとサービス」→「OAuth同意画面」を設定（User Type: External、公開ステータスは**テスト**のままでOK。テストユーザーに自分のGoogleアカウントを追加）
+4. 「認証情報」→「認証情報を作成」→「OAuthクライアントID」
+   - アプリケーションの種類: **ウェブアプリケーション**
+   - 承認済みのリダイレクトURI: `http://127.0.0.1:3001/auth/google/callback`
+5. 発行された **クライアントID** と **クライアントシークレット** を `server/.env` に追加
+
+```
+GOOGLE_CLIENT_ID=（発行されたクライアントID）
+GOOGLE_CLIENT_SECRET=（発行されたクライアントシークレット）
+```
+
+6. サーバーを再起動し、ブラウザのTodoセクションにある「Googleと連携する」から認可（初回のみ）。以降は「Googleと同期」ボタンで取り込めます。
 
 ## セキュリティについて
 
