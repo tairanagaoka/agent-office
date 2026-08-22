@@ -51,11 +51,16 @@ npm workspaces構成。依存関係はルートで `npm install`、各ワーク�
 - ブラウザの`EventSource`はカスタムヘッダーを送れないため、`/stream`はクエリパラメータでも
   トークンを受け付けている（`/chat`等の他エンドポイントはヘッダーのみ）。
 - CORSは`hono/cors`で`http://localhost:5173`のみ許可。フロントのオリジンを変える場合は要修正。
+- **エージェントのツール権限は許可リスト方式**（`server/src/index.ts`の`ALL_TOOLS`とagentの`allowedTools`の
+  差分を`disallowedTools`に渡す）。新しいツールがAgent SDKに増えたら`ALL_TOOLS`に追記すること。
+  **`Task`（サブエージェント起動）を許可リストに含めると、制限の緩いサブエージェントに委任して
+  Bash等の制限を回避される**ので、部署エージェントには基本含めない。開発エージェントは`cwd`を
+  プロジェクトルート(`PROJECT_ROOT`)に固定している。
 
 ## 実装上の注意
 
 - `@anthropic-ai/claude-agent-sdk` は新しいため、AIが存在しないAPIを生成する可能性がある。
   実装前に `node_modules/@anthropic-ai/claude-agent-sdk/*.d.ts` を確認すること。
 - 作者はJava経験者でJS/TSは学習中。async/await・React状態管理の説明は厚めに。
-- エージェントのプロンプト精度・ツール権限の作り込みは意図的に後回し（M2時点では全エージェント
-  共通で `allowedTools: ["Read"]`）。今後、部署ごとに権限を分ける想定（8章参照）。
+- エージェントのプロンプト精度（キャラ付け）の作り込みは意図的に後回し。ツール権限は
+  8章の方針通り部署ごとに分離済み（`templates/agents/*.md`の`tools:`で宣言）。

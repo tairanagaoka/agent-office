@@ -1,5 +1,7 @@
 import "dotenv/config";
 import { randomBytes, randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -10,6 +12,17 @@ import { addTodo, deleteTodo, listTodos, updateTodo } from "./todos.js";
 
 const PORT = 3001;
 const DEV_ORIGIN = "http://localhost:5173";
+const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+// Agent SDKがデフォルトで持つツール全量（Claude Code本体と同じフルセット）。
+// エージェントのtools:で明示的に許可されたもの以外は全てdisallowedTools行きにする（許可リスト方式）。
+// 特にTaskを塞がないと「制限の緩いサブエージェントに委任してBash等を回避する」抜け道が残るので要注意。
+const ALL_TOOLS = [
+  "Task", "Artifact", "Bash", "CronCreate", "CronDelete", "CronList", "DesignSync",
+  "Edit", "EnterWorktree", "ExitWorktree", "Glob", "Grep", "ListAgents", "Monitor",
+  "NotebookEdit", "PowerShell", "PushNotification", "Read", "RemoteTrigger",
+  "ReportFindings", "ScheduleWakeup", "SendMessage", "Skill", "TaskOutput", "TaskStop",
+  "ToolSearch", "WebFetch", "WebSearch", "Workflow", "Write",
+];
 
 // M1時点のセキュリティ要件（8章）: localhost固定 + Origin検証 + 秘密トークン
 // トークンは.envに固定値として持たせ、再起動のたびに変わらないようにする（毎回貼り直す手間を無くすため）
@@ -113,9 +126,11 @@ function runTask(
       for await (const message of query({
         prompt,
         options: {
-          allowedTools: ["Read"],
+          allowedTools: agent.allowedTools,
+          disallowedTools: ALL_TOOLS.filter((t) => !agent.allowedTools.includes(t)),
           permissionMode: "default",
           systemPrompt: agent.systemPrompt,
+          cwd: PROJECT_ROOT,
         },
       })) {
         if (message.type === "result") {

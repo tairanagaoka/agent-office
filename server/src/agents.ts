@@ -9,13 +9,17 @@ export type AgentDef = {
   id: string;
   name: string;
   systemPrompt: string;
+  allowedTools: string[];
 };
 
-// Markdownのfrontmatter（--- id: ... / name: ... ---）を簡易パースする
+// 未指定時の既定値。8章の方針(生活サポート・家計はRead/WebSearchのみ)に合わせ、安全側に倒す
+const DEFAULT_TOOLS = ["Read", "WebSearch"];
+
+// Markdownのfrontmatter（--- id: ... / name: ... / tools: ... ---）を簡易パースする
 function parseAgentFile(raw: string, fallbackId: string): AgentDef {
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (!match) {
-    return { id: fallbackId, name: fallbackId, systemPrompt: raw.trim() };
+    return { id: fallbackId, name: fallbackId, systemPrompt: raw.trim(), allowedTools: DEFAULT_TOOLS };
   }
   const [, frontmatter, body] = match;
   const data: Record<string, string> = {};
@@ -28,6 +32,7 @@ function parseAgentFile(raw: string, fallbackId: string): AgentDef {
     id: data.id ?? fallbackId,
     name: data.name ?? fallbackId,
     systemPrompt: body.trim(),
+    allowedTools: data.tools ? data.tools.split(",").map((t) => t.trim()) : DEFAULT_TOOLS,
   };
 }
 
