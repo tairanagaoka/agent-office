@@ -1,0 +1,3 @@
+# templates/agents/*.md はfrontmatter解析でLF前提の正規表現を使っているため、
+# Windows(core.autocrlf=true)でもCRLF化されないようLFに固定する
+templates/agents/*.md text eol=lf

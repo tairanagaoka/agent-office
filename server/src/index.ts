@@ -118,7 +118,12 @@ app.get("/auth/google/callback", async (c) => {
     return c.text("Invalid OAuth state", 400);
   }
   pendingGoogleOAuthState = null;
-  await exchangeCode(code);
+  try {
+    await exchangeCode(code);
+  } catch (err) {
+    console.error("[agent-office] Google OAuth token exchange failed:", err);
+    return c.redirect(`${DEV_ORIGIN}?google_auth_error=1`);
+  }
   return c.redirect(DEV_ORIGIN);
 });
 

@@ -47,7 +47,13 @@ export function App() {
   const [panels, setPanels] = useState<Record<string, PanelState>>({});
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
-  const [googleSyncNote, setGoogleSyncNote] = useState("");
+  const [googleSyncNote, setGoogleSyncNote] = useState(() => {
+    if (new URLSearchParams(window.location.search).has("google_auth_error")) {
+      window.history.replaceState(null, "", window.location.pathname);
+      return "Google連携に失敗しました。もう一度お試しください。";
+    }
+    return "";
+  });
   const sessionIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const hasAutoConnectedRef = useRef(false);
@@ -219,13 +225,11 @@ export function App() {
           }}
         >
           {googleConnected ? (
-            <>
-              <button onClick={syncGoogleTasks}>Todoを同期</button>
-              {googleSyncNote && <span style={{ color: "#666", marginLeft: "0.5rem" }}>{googleSyncNote}</span>}
-            </>
+            <button onClick={syncGoogleTasks}>Todoを同期</button>
           ) : (
             <button onClick={connectGoogle}>Google Tasksと連携する</button>
           )}
+          {googleSyncNote && <span style={{ color: "#666", marginLeft: "0.5rem" }}>{googleSyncNote}</span>}
         </div>
       )}
 
