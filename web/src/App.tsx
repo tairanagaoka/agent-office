@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const SERVER_URL = "http://127.0.0.1:3001";
 const TOKEN_STORAGE_KEY = "agent-office-token";
@@ -56,8 +56,10 @@ export function App() {
   const [openSubtaskFor, setOpenSubtaskFor] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "todo" | "chat">("chat");
   const sessionIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const hasAutoConnectedRef = useRef(false);
 
   const authHeaders = { "x-agent-office-token": token };
 
@@ -150,6 +152,15 @@ export function App() {
 
     eventSourceRef.current = es;
   };
+
+  // トークンが保存済みなら、開いた瞬間に自動接続する
+  useEffect(() => {
+    if (token && !hasAutoConnectedRef.current) {
+      hasAutoConnectedRef.current = true;
+      connect();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const send = async (agentId: string) => {
     const panel = panels[agentId];
@@ -362,7 +373,34 @@ export function App() {
         </div>
       )}
 
-      {connected && dashboard && (
+      {connected && (
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #ccc" }}>
+          {(
+            [
+              ["chat", "チャット"],
+              ["todo", "Todo"],
+              ["dashboard", "ダッシュボード"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              style={{
+                padding: "0.5rem 1rem",
+                border: "none",
+                borderBottom: activeTab === key ? "2px solid #4285f4" : "2px solid transparent",
+                background: "none",
+                fontWeight: activeTab === key ? "bold" : "normal",
+                cursor: "pointer",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {connected && activeTab === "dashboard" && dashboard && (
         <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
           <h2 style={{ fontSize: "1.1rem" }}>ダッシュボード</h2>
           <p style={{ fontSize: "0.9rem" }}>
@@ -400,7 +438,7 @@ export function App() {
         </div>
       )}
 
-      {connected && (
+      {connected && activeTab === "todo" && (
         <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
           <h2 style={{ fontSize: "1.1rem" }}>
             Todo{" "}
@@ -464,7 +502,7 @@ export function App() {
         </div>
       )}
 
-      {connected && (
+      {connected && activeTab === "chat" && (
         <div style={{ display: "flex", gap: "1rem" }}>
           {Object.entries(panels).map(([agentId, panel]) => (
             <div key={agentId} style={{ flex: 1, border: "1px solid #ccc", padding: "1rem" }}>
