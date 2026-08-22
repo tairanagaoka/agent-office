@@ -5,6 +5,23 @@ import remarkGfm from "remark-gfm";
 const SERVER_URL = "http://127.0.0.1:3001";
 const TOKEN_STORAGE_KEY = "agent-office-token";
 
+// VSCode Dark+ 風の配色
+const THEME = {
+  bg: "#1e1e1e",
+  panelBg: "#252526",
+  panelBorder: "#3c3c3c",
+  text: "#d4d4d4",
+  textMuted: "#8a8a8a",
+  accent: "#0e639c",
+  accentHover: "#1177bb",
+  accentText: "#ffffff",
+  inputBg: "#3c3c3c",
+  bubbleAssistant: "#2d2d2d",
+  success: "#89d185",
+  error: "#f14c4c",
+  tabActive: "#007acc",
+};
+
 type ChatLine = {
   role: string;
   text: string;
@@ -117,8 +134,8 @@ function DeskIcon({ status }: { status: "idle" | "running" | "failed" }) {
       />
 
       {/* モニター本体 */}
-      <rect x="34" y="10" width="28" height="22" fill="#d8d2c2" />
-      <rect x="44" y="32" width="8" height="4" fill="#b8b2a2" />
+      <rect x="34" y="10" width="28" height="22" fill="#3c3c3c" />
+      <rect x="44" y="32" width="8" height="4" fill="#2d2d2d" />
       {/* 画面(稼働状態で色が変わる) */}
       <rect
         x="38"
@@ -133,6 +150,23 @@ function DeskIcon({ status }: { status: "idle" | "running" | "failed" }) {
     </svg>
   );
 }
+
+const inputStyle = {
+  background: THEME.inputBg,
+  color: THEME.text,
+  border: `1px solid ${THEME.panelBorder}`,
+  borderRadius: "3px",
+  padding: "0.4rem 0.6rem",
+};
+
+const buttonStyle = {
+  background: THEME.accent,
+  color: THEME.accentText,
+  border: "none",
+  borderRadius: "3px",
+  padding: "0.4rem 0.9rem",
+  cursor: "pointer",
+};
 
 export function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
@@ -302,21 +336,26 @@ export function App() {
   };
 
   return (
-    <div style={{ fontFamily: "sans-serif", maxWidth: 1100, margin: "2rem auto" }}>
+    <div style={{ fontFamily: "sans-serif", maxWidth: 1100, margin: "0 auto", padding: "2rem 1rem", color: THEME.text }}>
       <style>
         {`
+          html { color-scheme: dark; }
+          html, body { background: ${THEME.bg}; margin: 0; }
+          button:hover { background: ${THEME.accentHover}; }
+          input::placeholder { color: ${THEME.textMuted}; }
           .chat-markdown p { margin: 0.15rem 0; }
           .chat-markdown ul, .chat-markdown ol { margin: 0.25rem 0; padding-left: 1.25rem; }
-          .chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { font-size: 1em; margin: 0.4rem 0 0.2rem; }
-          .chat-markdown pre { background: #eee; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.8rem; }
-          .chat-markdown code { background: #e8e8e8; padding: 0 0.25rem; border-radius: 3px; font-size: 0.85em; }
+          .chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { font-size: 1em; margin: 0.4rem 0 0.2rem; color: ${THEME.text}; }
+          .chat-markdown a { color: #3794ff; }
+          .chat-markdown pre { background: ${THEME.bg}; border: 1px solid ${THEME.panelBorder}; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.8rem; }
+          .chat-markdown code { background: ${THEME.inputBg}; padding: 0 0.25rem; border-radius: 3px; font-size: 0.85em; }
           .chat-markdown pre code { background: none; padding: 0; }
           .chat-markdown table { border-collapse: collapse; font-size: 0.85rem; }
-          .chat-markdown th, .chat-markdown td { border: 1px solid #ccc; padding: 0.25rem 0.5rem; }
-          .chat-markdown blockquote { margin: 0.25rem 0; padding-left: 0.75rem; border-left: 3px solid #ccc; color: #666; }
+          .chat-markdown th, .chat-markdown td { border: 1px solid ${THEME.panelBorder}; padding: 0.25rem 0.5rem; }
+          .chat-markdown blockquote { margin: 0.25rem 0; padding-left: 0.75rem; border-left: 3px solid ${THEME.panelBorder}; color: ${THEME.textMuted}; }
         `}
       </style>
-      <h1>agent-office</h1>
+      <h1 style={{ color: THEME.text }}>agent-office</h1>
 
       {!connected && (
         <div style={{ marginBottom: "1rem" }}>
@@ -325,9 +364,11 @@ export function App() {
             placeholder="サーバー起動時に表示されたトークン"
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            style={{ width: "70%" }}
+            style={{ ...inputStyle, width: "70%" }}
           />
-          <button onClick={connect}>接続</button>
+          <button onClick={connect} style={{ ...buttonStyle, marginLeft: "0.5rem" }}>
+            接続
+          </button>
         </div>
       )}
 
@@ -338,7 +379,7 @@ export function App() {
             justifyContent: "space-between",
             alignItems: "center",
             marginBottom: "1rem",
-            borderBottom: "1px solid #ccc",
+            borderBottom: `1px solid ${THEME.panelBorder}`,
           }}
         >
           <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -355,8 +396,9 @@ export function App() {
                 style={{
                   padding: "0.5rem 1rem",
                   border: "none",
-                  borderBottom: activeTab === key ? "2px solid #4285f4" : "2px solid transparent",
+                  borderBottom: activeTab === key ? `2px solid ${THEME.tabActive}` : "2px solid transparent",
                   background: "none",
+                  color: activeTab === key ? THEME.text : THEME.textMuted,
                   fontWeight: activeTab === key ? "bold" : "normal",
                   cursor: "pointer",
                 }}
@@ -368,18 +410,22 @@ export function App() {
 
           <div style={{ fontSize: "0.8rem", paddingBottom: "0.5rem" }}>
             {googleConnected ? (
-              <button onClick={syncGoogleTasks}>Todoを同期</button>
+              <button onClick={syncGoogleTasks} style={buttonStyle}>
+                Todoを同期
+              </button>
             ) : (
-              <button onClick={connectGoogle}>Google Tasksと連携する</button>
+              <button onClick={connectGoogle} style={buttonStyle}>
+                Google Tasksと連携する
+              </button>
             )}
-            {googleSyncNote && <span style={{ color: "#666", marginLeft: "0.5rem" }}>{googleSyncNote}</span>}
+            {googleSyncNote && <span style={{ color: THEME.textMuted, marginLeft: "0.5rem" }}>{googleSyncNote}</span>}
           </div>
         </div>
       )}
 
       {connected && activeTab === "dashboard" && dashboard && (
-        <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
-          <h2 style={{ fontSize: "1.1rem" }}>ホワイトボード</h2>
+        <div style={{ background: THEME.panelBg, border: `1px solid ${THEME.panelBorder}`, borderRadius: "4px", padding: "1rem", marginBottom: "1rem" }}>
+          <h2 style={{ fontSize: "1.1rem", marginTop: 0 }}>ホワイトボード</h2>
 
           {dashboard.rateLimits.length > 0 && (
             <div style={{ marginBottom: "1rem" }}>
@@ -390,7 +436,7 @@ export function App() {
                   {RATE_LIMIT_STATUS_LABELS[rl.status] ?? rl.status}
                   {rl.utilization != null && `（使用率 ${Math.round(rl.utilization * 100)}%）`}
                   {rl.resetsAt && (
-                    <span style={{ color: "#666" }}> ・ {formatRelativeReset(rl.resetsAt)}</span>
+                    <span style={{ color: THEME.textMuted }}> ・ {formatRelativeReset(rl.resetsAt)}</span>
                   )}
                 </p>
               ))}
@@ -401,33 +447,37 @@ export function App() {
             稼働中: {dashboard.overall.runningCount} / 完了: {dashboard.overall.tasksCompleted} / 失敗:{" "}
             {dashboard.overall.tasksFailed} / トークン合計: {dashboard.overall.totalTokens} / 待ち時間合計:{" "}
             {(dashboard.overall.totalWaitMs / 1000).toFixed(1)}秒
-            <span style={{ color: "#999", fontSize: "0.8rem" }}>
+            <span style={{ color: THEME.textMuted, fontSize: "0.8rem" }}>
               {" "}
               (概算コスト ${dashboard.overall.totalCostUsd.toFixed(4)})
             </span>
           </p>
-          <table style={{ fontSize: "0.85rem", borderCollapse: "collapse" }}>
+          <table style={{ fontSize: "0.85rem", borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
-                <th style={{ textAlign: "left", paddingRight: "1rem" }}>部署</th>
-                <th style={{ textAlign: "left", paddingRight: "1rem" }}>稼働状況</th>
-                <th style={{ textAlign: "right", paddingRight: "1rem" }}>トークン</th>
-                <th style={{ textAlign: "right", paddingRight: "1rem" }}>待ち時間(秒)</th>
-                <th style={{ textAlign: "right", paddingRight: "1rem" }}>完了</th>
-                <th style={{ textAlign: "right", paddingRight: "1rem" }}>失敗</th>
-                <th style={{ textAlign: "right", color: "#999", fontWeight: "normal" }}>概算コスト($)</th>
+                <th style={{ textAlign: "left", paddingRight: "1rem", borderBottom: `1px solid ${THEME.panelBorder}` }}>部署</th>
+                <th style={{ textAlign: "left", paddingRight: "1rem", borderBottom: `1px solid ${THEME.panelBorder}` }}>稼働状況</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem", borderBottom: `1px solid ${THEME.panelBorder}` }}>トークン</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem", borderBottom: `1px solid ${THEME.panelBorder}` }}>待ち時間(秒)</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem", borderBottom: `1px solid ${THEME.panelBorder}` }}>完了</th>
+                <th style={{ textAlign: "right", paddingRight: "1rem", borderBottom: `1px solid ${THEME.panelBorder}` }}>失敗</th>
+                <th style={{ textAlign: "right", color: THEME.textMuted, fontWeight: "normal", borderBottom: `1px solid ${THEME.panelBorder}` }}>概算コスト($)</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.perAgent.map((a) => (
                 <tr key={a.agentId}>
-                  <td style={{ paddingRight: "1rem" }}>{a.name}</td>
-                  <td style={{ paddingRight: "1rem" }}>{a.running ? "実行中" : "待機"}</td>
+                  <td style={{ paddingRight: "1rem", padding: "0.3rem 1rem 0.3rem 0" }}>{a.name}</td>
+                  <td style={{ paddingRight: "1rem", color: a.running ? THEME.success : THEME.textMuted }}>
+                    {a.running ? "実行中" : "待機"}
+                  </td>
                   <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.totalTokens}</td>
                   <td style={{ textAlign: "right", paddingRight: "1rem" }}>{(a.totalWaitMs / 1000).toFixed(1)}</td>
                   <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.tasksCompleted}</td>
-                  <td style={{ textAlign: "right", paddingRight: "1rem" }}>{a.tasksFailed}</td>
-                  <td style={{ textAlign: "right", color: "#999" }}>{a.totalCostUsd.toFixed(4)}</td>
+                  <td style={{ textAlign: "right", paddingRight: "1rem", color: a.tasksFailed > 0 ? THEME.error : THEME.text }}>
+                    {a.tasksFailed}
+                  </td>
+                  <td style={{ textAlign: "right", color: THEME.textMuted }}>{a.totalCostUsd.toFixed(4)}</td>
                 </tr>
               ))}
             </tbody>
@@ -436,15 +486,25 @@ export function App() {
       )}
 
       {connected && activeTab === "documents" && (
-        <div style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
-          <h2 style={{ fontSize: "1.1rem" }}>資料</h2>
+        <div style={{ background: THEME.panelBg, border: `1px solid ${THEME.panelBorder}`, borderRadius: "4px", padding: "1rem", marginBottom: "1rem" }}>
+          <h2 style={{ fontSize: "1.1rem", marginTop: 0 }}>資料</h2>
           {documents.length === 0 ? (
-            <p style={{ fontSize: "0.9rem", color: "#999" }}>まだ資料はありません。</p>
+            <p style={{ fontSize: "0.9rem", color: THEME.textMuted }}>まだ資料はありません。</p>
           ) : (
             documents.map((doc) => (
-              <div key={doc.id} style={{ border: "1px solid #eee", borderRadius: "8px", padding: "1rem", marginBottom: "1rem" }}>
-                <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: "0.5rem" }}>
-                  <strong>{doc.agentName}</strong> ・ {new Date(doc.timestamp).toLocaleString("ja-JP")}
+              <div
+                key={doc.id}
+                style={{
+                  border: `1px solid ${THEME.panelBorder}`,
+                  borderRadius: "6px",
+                  padding: "1rem",
+                  marginBottom: "1rem",
+                  background: THEME.bg,
+                }}
+              >
+                <div style={{ fontSize: "0.8rem", color: THEME.textMuted, marginBottom: "0.5rem" }}>
+                  <strong style={{ color: THEME.text }}>{doc.agentName}</strong> ・{" "}
+                  {new Date(doc.timestamp).toLocaleString("ja-JP")}
                   {doc.prompt && <> ・ 依頼内容: {doc.prompt}</>}
                 </div>
                 <Markdown text={doc.text} />
@@ -457,15 +517,32 @@ export function App() {
       {connected && activeTab === "chat" && (
         <div style={{ display: "flex", gap: "1rem" }}>
           {Object.entries(panels).map(([agentId, panel]) => (
-            <div key={agentId} style={{ flex: 1, border: "1px solid #ccc", padding: "1rem" }}>
+            <div
+              key={agentId}
+              style={{
+                flex: 1,
+                background: THEME.panelBg,
+                border: `1px solid ${THEME.panelBorder}`,
+                borderRadius: "4px",
+                padding: "1rem",
+              }}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
                 <DeskIcon status={panel.status} />
                 <h2 style={{ fontSize: "1.1rem", margin: 0 }}>
                   {panel.name}{" "}
-                  <span style={{ fontSize: "0.8rem", color: "#666" }}>
-                    (
-                    {panel.status === "running" ? "実行中" : panel.status === "failed" ? "失敗" : "待機"}
-                    )
+                  <span
+                    style={{
+                      fontSize: "0.8rem",
+                      color:
+                        panel.status === "running"
+                          ? THEME.success
+                          : panel.status === "failed"
+                            ? THEME.error
+                            : THEME.textMuted,
+                    }}
+                  >
+                    ({panel.status === "running" ? "実行中" : panel.status === "failed" ? "失敗" : "待機"})
                   </span>
                 </h2>
               </div>
@@ -476,7 +553,7 @@ export function App() {
                     return (
                       <div
                         key={i}
-                        style={{ textAlign: "center", fontSize: "0.75rem", color: "#999", margin: "0.6rem 0" }}
+                        style={{ textAlign: "center", fontSize: "0.75rem", color: THEME.textMuted, margin: "0.6rem 0" }}
                       >
                         {line.text}
                       </div>
@@ -491,8 +568,8 @@ export function App() {
                       <div
                         style={{
                           maxWidth: "85%",
-                          background: isUser ? "#4285f4" : "#f1f1f1",
-                          color: isUser ? "#fff" : "#222",
+                          background: isUser ? THEME.accent : THEME.bubbleAssistant,
+                          color: isUser ? THEME.accentText : THEME.text,
                           borderRadius: "10px",
                           padding: "0.5rem 0.75rem",
                           fontSize: "0.9rem",
@@ -500,7 +577,7 @@ export function App() {
                         }}
                       >
                         {!isUser && (
-                          <div style={{ fontSize: "0.7rem", fontWeight: "bold", color: "#666", marginBottom: "0.2rem" }}>
+                          <div style={{ fontSize: "0.7rem", fontWeight: "bold", color: THEME.textMuted, marginBottom: "0.2rem" }}>
                             {line.role}
                           </div>
                         )}
@@ -519,9 +596,9 @@ export function App() {
                   updatePanel(agentId, (p) => ({ ...p, prompt: e.target.value }))
                 }
                 onKeyDown={(e) => e.key === "Enter" && send(agentId)}
-                style={{ width: "100%", marginBottom: "0.5rem" }}
+                style={{ ...inputStyle, width: "100%", marginBottom: "0.5rem", boxSizing: "border-box" }}
               />
-              <button onClick={() => send(agentId)} disabled={panel.status === "running"}>
+              <button onClick={() => send(agentId)} disabled={panel.status === "running"} style={buttonStyle}>
                 送信
               </button>
             </div>
