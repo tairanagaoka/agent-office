@@ -147,11 +147,12 @@ app.post("/sync/google-tasks", async (c) => {
 
 app.get("/agents", (c) => {
   return c.json(
-    Array.from(agents.values()).map(({ id, name, allowedTools, scope }) => ({
+    Array.from(agents.values()).map(({ id, name, allowedTools, scope, department }) => ({
       id,
       name,
       tools: allowedTools,
       scope,
+      department,
     }))
   );
 });

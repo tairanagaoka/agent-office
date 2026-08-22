@@ -42,6 +42,7 @@ type Agent = {
   name: string;
   tools: string[];
   scope: "global" | "project";
+  department: string;
 };
 
 type Project = {
@@ -624,106 +625,146 @@ export function App() {
         </div>
       )}
 
-      {connected && activeTab === "chat" && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
-          {Object.entries(panels).map(([agentId, panel]) => {
-            const agentMeta = agentList.find((a) => a.id === agentId);
-            return (
-            <div
-              key={agentId}
-              style={{
-                flex: "1 1 280px",
-                minWidth: 280,
-                background: THEME.panelBg,
-                border: `1px solid ${THEME.panelBorder}`,
-                borderRadius: "4px",
-                padding: "1rem",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
-                <DeskIcon status={panel.status} />
-                <h2 style={{ fontSize: "1.1rem", margin: 0 }}>
-                  {panel.name}{" "}
-                  <span
-                    style={{
-                      fontSize: "0.8rem",
-                      color:
-                        panel.status === "running"
-                          ? THEME.success
-                          : panel.status === "failed"
-                            ? THEME.error
-                            : THEME.textMuted,
-                    }}
-                  >
-                    ({panel.status === "running" ? "実行中" : panel.status === "failed" ? "失敗" : "待機"})
-                  </span>
-                  {agentMeta?.scope === "global" && (
-                    <span style={{ fontSize: "0.7rem", color: THEME.textMuted, marginLeft: "0.4rem" }}>
-                      (全プロジェクト共通)
-                    </span>
-                  )}
-                </h2>
-              </div>
+      {connected && activeTab === "chat" && (() => {
+        // agentListの登場順を保ったまま部署ごとにグルーピングする
+        const departmentOrder: string[] = [];
+        const departmentAgents: Record<string, string[]> = {};
+        for (const agent of agentList) {
+          if (!departmentAgents[agent.department]) {
+            departmentAgents[agent.department] = [];
+            departmentOrder.push(agent.department);
+          }
+          departmentAgents[agent.department].push(agent.id);
+        }
 
-              <div style={{ minHeight: 200, marginBottom: "0.5rem", overflowY: "auto" }}>
-                {panel.lines.map((line, i) => {
-                  if (line.role === "system") {
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+            {departmentOrder.map((department) => (
+              <div key={department}>
+                <h2 style={{ fontSize: "1rem", color: THEME.textMuted, marginBottom: "0.5rem" }}>{department}</h2>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
+                  {departmentAgents[department].map((agentId) => {
+                    const panel = panels[agentId];
+                    if (!panel) return null;
+                    const agentMeta = agentList.find((a) => a.id === agentId);
                     return (
                       <div
-                        key={i}
-                        style={{ textAlign: "center", fontSize: "0.75rem", color: THEME.textMuted, margin: "0.6rem 0" }}
-                      >
-                        {line.text}
-                      </div>
-                    );
-                  }
-                  const isUser = line.role === "user";
-                  return (
-                    <div
-                      key={i}
-                      style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", margin: "0.4rem 0" }}
-                    >
-                      <div
+                        key={agentId}
                         style={{
-                          maxWidth: "85%",
-                          background: isUser ? THEME.accent : THEME.bubbleAssistant,
-                          color: isUser ? THEME.accentText : THEME.text,
-                          borderRadius: "10px",
-                          padding: "0.5rem 0.75rem",
-                          fontSize: "0.9rem",
-                          overflowWrap: "break-word",
+                          flex: "1 1 280px",
+                          minWidth: 280,
+                          background: THEME.panelBg,
+                          border: `1px solid ${THEME.panelBorder}`,
+                          borderRadius: "4px",
+                          padding: "1rem",
                         }}
                       >
-                        {!isUser && (
-                          <div style={{ fontSize: "0.7rem", fontWeight: "bold", color: THEME.textMuted, marginBottom: "0.2rem" }}>
-                            {line.role}
-                          </div>
-                        )}
-                        <Markdown text={line.text} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
+                          <DeskIcon status={panel.status} />
+                          <h2 style={{ fontSize: "1.1rem", margin: 0 }}>
+                            {panel.name}{" "}
+                            <span
+                              style={{
+                                fontSize: "0.8rem",
+                                color:
+                                  panel.status === "running"
+                                    ? THEME.success
+                                    : panel.status === "failed"
+                                      ? THEME.error
+                                      : THEME.textMuted,
+                              }}
+                            >
+                              ({panel.status === "running" ? "実行中" : panel.status === "failed" ? "失敗" : "待機"})
+                            </span>
+                            {agentMeta?.scope === "global" && (
+                              <span style={{ fontSize: "0.7rem", color: THEME.textMuted, marginLeft: "0.4rem" }}>
+                                (全プロジェクト共通)
+                              </span>
+                            )}
+                          </h2>
+                        </div>
 
-              <input
-                type="text"
-                value={panel.prompt}
-                disabled={panel.status === "running"}
-                onChange={(e) =>
-                  updatePanel(agentId, (p) => ({ ...p, prompt: e.target.value }))
-                }
-                onKeyDown={(e) => e.key === "Enter" && send(agentId)}
-                style={{ ...inputStyle, width: "100%", marginBottom: "0.5rem", boxSizing: "border-box" }}
-              />
-              <button onClick={() => send(agentId)} disabled={panel.status === "running"} style={buttonStyle}>
-                送信
-              </button>
-            </div>
-            );
-          })}
-        </div>
-      )}
+                        <div style={{ minHeight: 200, marginBottom: "0.5rem", overflowY: "auto" }}>
+                          {panel.lines.map((line, i) => {
+                            if (line.role === "system") {
+                              return (
+                                <div
+                                  key={i}
+                                  style={{
+                                    textAlign: "center",
+                                    fontSize: "0.75rem",
+                                    color: THEME.textMuted,
+                                    margin: "0.6rem 0",
+                                  }}
+                                >
+                                  {line.text}
+                                </div>
+                              );
+                            }
+                            const isUser = line.role === "user";
+                            return (
+                              <div
+                                key={i}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: isUser ? "flex-end" : "flex-start",
+                                  margin: "0.4rem 0",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    maxWidth: "85%",
+                                    background: isUser ? THEME.accent : THEME.bubbleAssistant,
+                                    color: isUser ? THEME.accentText : THEME.text,
+                                    borderRadius: "10px",
+                                    padding: "0.5rem 0.75rem",
+                                    fontSize: "0.9rem",
+                                    overflowWrap: "break-word",
+                                  }}
+                                >
+                                  {!isUser && (
+                                    <div
+                                      style={{
+                                        fontSize: "0.7rem",
+                                        fontWeight: "bold",
+                                        color: THEME.textMuted,
+                                        marginBottom: "0.2rem",
+                                      }}
+                                    >
+                                      {line.role}
+                                    </div>
+                                  )}
+                                  <Markdown text={line.text} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <input
+                          type="text"
+                          value={panel.prompt}
+                          disabled={panel.status === "running"}
+                          onChange={(e) => updatePanel(agentId, (p) => ({ ...p, prompt: e.target.value }))}
+                          onKeyDown={(e) => e.key === "Enter" && send(agentId)}
+                          style={{ ...inputStyle, width: "100%", marginBottom: "0.5rem", boxSizing: "border-box" }}
+                        />
+                        <button
+                          onClick={() => send(agentId)}
+                          disabled={panel.status === "running"}
+                          style={buttonStyle}
+                        >
+                          送信
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }
