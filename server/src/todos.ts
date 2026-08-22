@@ -83,3 +83,26 @@ export function syncFromGoogle(
   }
   return newTodos.length;
 }
+
+// 未完了Todoをシステムプロンプトに差し込むための短い一覧文を作る。
+// Todo専用画面は廃止し、代わりに各部署のエージェントが会話の中で自然に
+// 「これ着手しますか？」と聞けるように、会話コンテキストとして持たせる。
+export function buildTodoContext(): string {
+  const todos = readTodos().filter((t) => !t.done);
+  if (todos.length === 0) return "";
+
+  const topLevel = todos.filter((t) => !t.parentId);
+  const lines: string[] = [];
+  for (const todo of topLevel) {
+    lines.push(`- ${todo.text}${todo.due ? `（期限: ${todo.due}）` : ""}`);
+    for (const child of todos.filter((t) => t.parentId === todo.id)) {
+      lines.push(`  - ${child.text}${child.due ? `（期限: ${child.due}）` : ""}`);
+    }
+  }
+
+  return [
+    "以下はユーザーの未完了Todo一覧です。会話の内容に関連するものがあれば、",
+    "「これ着手しますか？」のように自然に触れてください。無理に全部言及する必要はありません。",
+    ...lines,
+  ].join("\n");
+}

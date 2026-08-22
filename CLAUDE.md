@@ -16,6 +16,9 @@ Claude Code の複数エージェントを「レトロなドット絵オフィ�
 - M5（Todoから振れる）: 完了
 - M6（ダッシュボード）: 完了
 - **v1.0（実用完成）達成**。次はM7（ドット絵と環境音、v1.5）
+- **Todo専用画面は廃止（2026-08-22）**。Google Tasksから一方向同期はバックグラウンドで継続、
+  ブラウジングはGoogle Tasks側に任せる。agent-office側は各部署のエージェントが会話の中で
+  未完了Todoに自然に触れる「ヒアリング」方式に変更（詳細は下記）
 
 ## 構成
 
@@ -62,6 +65,16 @@ npm workspaces構成。依存関係はルートで `npm install`、各ワーク�
   リダイレクトが`x-agent-office-token`を持ってこられないため）。代わりに`state`パラメータで
   CSRFを防いでいる。この2ルート以外を対象外に広げないこと。設定は`server/.env`の
   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`（READMEのセットアップ手順を参照）。
+
+## Todoの扱い（画面なし、会話ヒアリング方式）
+
+- `server/src/todos.ts`の`buildTodoContext()`が未完了Todo（親子関係込み）を短い箇条書きに整形し、
+  `runTask()`が`agent.systemPrompt`に毎回追記する。専用UIはないので、Todoの追加・確認・完了操作は
+  Google Tasksアプリ側で行う想定。
+- ブラウザ側は接続時にGoogle連携済みなら自動で`/sync/google-tasks`を叩き、手動の「Todoを同期」
+  ボタンもチャット/ホワイトボードのタブ横に残している。
+- `/todos`のCRUDや`/todos/:id/assign`はAPIとしては残っているが、フロントのUIからは呼んでいない
+  （直接API操作や将来の用途のために削除はしていない）。
 
 ## 実装上の注意
 

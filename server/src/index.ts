@@ -8,7 +8,7 @@ import { cors } from "hono/cors";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadAgents } from "./agents.js";
-import { addTodo, deleteTodo, listTodos, syncFromGoogle, updateTodo } from "./todos.js";
+import { addTodo, buildTodoContext, deleteTodo, listTodos, syncFromGoogle, updateTodo } from "./todos.js";
 import { buildAuthUrl, exchangeCode, fetchIncompleteTasks, isConnected as isGoogleConnected } from "./google-tasks.js";
 
 const PORT = 3001;
@@ -177,13 +177,15 @@ function runTask(
   (async () => {
     let failed = false;
     try {
+      const todoContext = buildTodoContext();
+      const systemPrompt = todoContext ? `${agent.systemPrompt}\n\n${todoContext}` : agent.systemPrompt;
       for await (const message of query({
         prompt,
         options: {
           allowedTools: agent.allowedTools,
           disallowedTools: ALL_TOOLS.filter((t) => !agent.allowedTools.includes(t)),
           permissionMode: "default",
-          systemPrompt: agent.systemPrompt,
+          systemPrompt,
           cwd: PROJECT_ROOT,
         },
       })) {
