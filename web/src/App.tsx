@@ -1,4 +1,6 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const SERVER_URL = "http://127.0.0.1:3001";
 const TOKEN_STORAGE_KEY = "agent-office-token";
@@ -8,55 +10,14 @@ type ChatLine = {
   text: string;
 };
 
-// **太字** だけを扱う最小限のインライン装飾(外部ライブラリなしで安全に済ませる)
-function renderInline(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") ? (
-      <strong key={i}>{part.slice(2, -2)}</strong>
-    ) : (
-      <Fragment key={i}>{part}</Fragment>
-    )
+// チャット吹き出し・資料タブ共通のMarkdown表示(見出し/箇条書き/表/コードブロックに対応)。
+// 狭い吹き出しでも収まるよう.chat-markdownで余白・フォントサイズを詰めている。
+function Markdown({ text }: { text: string }) {
+  return (
+    <div className="chat-markdown">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
   );
-}
-
-// `- `箇条書きと**太字**だけをサポートする最小限のMarkdown表示(外部ライブラリ不使用)
-function renderMarkdownLite(text: string): ReactNode {
-  const lines = text.split("\n");
-  const blocks: ReactNode[] = [];
-  let currentList: string[] = [];
-
-  const flushList = () => {
-    if (currentList.length === 0) return;
-    blocks.push(
-      <ul key={blocks.length} style={{ margin: "0.25rem 0", paddingLeft: "1.25rem" }}>
-        {currentList.map((item, i) => (
-          <li key={i}>{renderInline(item)}</li>
-        ))}
-      </ul>
-    );
-    currentList = [];
-  };
-
-  for (const line of lines) {
-    const listMatch = line.match(/^[-*]\s+(.*)/);
-    if (listMatch) {
-      currentList.push(listMatch[1]);
-      continue;
-    }
-    flushList();
-    if (line.trim() === "") {
-      blocks.push(<div key={blocks.length} style={{ height: "0.4rem" }} />);
-    } else {
-      blocks.push(
-        <p key={blocks.length} style={{ margin: "0.15rem 0" }}>
-          {renderInline(line)}
-        </p>
-      );
-    }
-  }
-  flushList();
-
-  return <>{blocks}</>;
 }
 
 type Agent = {
@@ -69,8 +30,6 @@ type PanelState = {
   lines: ChatLine[];
   status: "idle" | "running" | "failed";
   prompt: string;
-  responseBuffer: string;
-  lastPrompt: string;
 };
 
 type DocumentEntry = {
@@ -213,6 +172,11 @@ export function App() {
     setDashboard(await res.json());
   };
 
+  const refreshDocuments = async () => {
+    const res = await fetch(`${SERVER_URL}/documents`, { headers: authHeaders });
+    setDocuments(await res.json());
+  };
+
   const updatePanel = (agentId: string, update: (panel: PanelState) => PanelState) => {
     setPanels((prev) => (prev[agentId] ? { ...prev, [agentId]: update(prev[agentId]) } : prev));
   };
@@ -231,14 +195,7 @@ export function App() {
       const list: Agent[] = await res.json();
       const initial: Record<string, PanelState> = {};
       for (const agent of list) {
-        initial[agent.id] = {
-          name: agent.name,
-          lines: [],
-          status: "idle",
-          prompt: "",
-          responseBuffer: "",
-          lastPrompt: "",
-        };
+        initial[agent.id] = { name: agent.name, lines: [], status: "idle", prompt: "" };
       }
       setPanels(initial);
 
@@ -254,6 +211,7 @@ export function App() {
       }
 
       await refreshDashboard();
+      await refreshDocuments();
     });
 
     es.addEventListener("message", (event) => {
@@ -267,31 +225,17 @@ export function App() {
           updatePanel(agentId, (panel) => ({
             ...panel,
             lines: [...panel.lines, { role: panel.name, text }],
-            responseBuffer: panel.responseBuffer + text,
           }));
         }
       } else if (message.type === "result") {
-        updatePanel(agentId, (panel) => {
-          if (panel.responseBuffer.trim()) {
-            setDocuments((prev) => [
-              {
-                id: `${Date.now()}-${agentId}`,
-                agentName: panel.name,
-                prompt: panel.lastPrompt,
-                text: panel.responseBuffer,
-                timestamp: Date.now(),
-              },
-              ...prev,
-            ]);
-          }
-          return {
-            ...panel,
-            status: message.is_error ? "failed" : "idle",
-            lines: [...panel.lines, { role: "system", text: `完了: ${message.subtype}` }],
-            responseBuffer: "",
-          };
-        });
+        updatePanel(agentId, (panel) => ({
+          ...panel,
+          status: message.is_error ? "failed" : "idle",
+          lines: [...panel.lines, { role: "system", text: `完了: ${message.subtype}` }],
+        }));
         refreshDashboard();
+        // 資料(書斎)はサーバー側で.mdファイルとして保存されるので、完了のたびに取得し直す
+        refreshDocuments();
       }
     });
 
@@ -321,8 +265,6 @@ export function App() {
       status: "running",
       prompt: "",
       lines: [...p.lines, { role: "user", text: prompt }],
-      responseBuffer: "",
-      lastPrompt: prompt,
     }));
 
     const res = await fetch(`${SERVER_URL}/chat`, {
@@ -361,6 +303,19 @@ export function App() {
 
   return (
     <div style={{ fontFamily: "sans-serif", maxWidth: 1100, margin: "2rem auto" }}>
+      <style>
+        {`
+          .chat-markdown p { margin: 0.15rem 0; }
+          .chat-markdown ul, .chat-markdown ol { margin: 0.25rem 0; padding-left: 1.25rem; }
+          .chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { font-size: 1em; margin: 0.4rem 0 0.2rem; }
+          .chat-markdown pre { background: #eee; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.8rem; }
+          .chat-markdown code { background: #e8e8e8; padding: 0 0.25rem; border-radius: 3px; font-size: 0.85em; }
+          .chat-markdown pre code { background: none; padding: 0; }
+          .chat-markdown table { border-collapse: collapse; font-size: 0.85rem; }
+          .chat-markdown th, .chat-markdown td { border: 1px solid #ccc; padding: 0.25rem 0.5rem; }
+          .chat-markdown blockquote { margin: 0.25rem 0; padding-left: 0.75rem; border-left: 3px solid #ccc; color: #666; }
+        `}
+      </style>
       <h1>agent-office</h1>
 
       {!connected && (
@@ -492,7 +447,7 @@ export function App() {
                   <strong>{doc.agentName}</strong> ・ {new Date(doc.timestamp).toLocaleString("ja-JP")}
                   {doc.prompt && <> ・ 依頼内容: {doc.prompt}</>}
                 </div>
-                {renderMarkdownLite(doc.text)}
+                <Markdown text={doc.text} />
               </div>
             ))
           )}
@@ -549,7 +504,7 @@ export function App() {
                             {line.role}
                           </div>
                         )}
-                        {renderMarkdownLite(line.text)}
+                        <Markdown text={line.text} />
                       </div>
                     </div>
                   );

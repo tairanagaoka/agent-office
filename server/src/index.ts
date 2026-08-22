@@ -10,6 +10,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadAgents } from "./agents.js";
 import { addTodo, buildTodoContext, deleteTodo, listTodos, syncFromGoogle, updateTodo } from "./todos.js";
 import { buildAuthUrl, exchangeCode, fetchIncompleteTasks, isConnected as isGoogleConnected } from "./google-tasks.js";
+import { listDocuments, saveDocument } from "./documents.js";
 
 const PORT = 3001;
 const DEV_ORIGIN = "http://localhost:5173";
@@ -181,6 +182,7 @@ function runTask(
 
   (async () => {
     let failed = false;
+    let responseText = "";
     try {
       const todoContext = buildTodoContext();
       const systemPrompt = todoContext ? `${agent.systemPrompt}\n\n${todoContext}` : agent.systemPrompt;
@@ -194,7 +196,11 @@ function runTask(
           cwd: PROJECT_ROOT,
         },
       })) {
-        if (message.type === "result") {
+        if (message.type === "assistant") {
+          for (const block of message.message.content) {
+            if (block.type === "text") responseText += block.text;
+          }
+        } else if (message.type === "result") {
           failed = "is_error" in message && !!message.is_error;
           recordResult(agentId, message);
         } else if (message.type === "rate_limit_event") {
@@ -218,6 +224,11 @@ function runTask(
       runningTasks.delete(key);
       if (todoId) {
         updateTodo(todoId, { status: failed ? "failed" : "completed", done: !failed });
+      }
+      // 応答内容は書斎(server/data/documents/)に.mdファイルとして永続化する。
+      // ブラウザを閉じていても、あるいはSSE接続が切れていても記録は残る。
+      if (responseText.trim()) {
+        saveDocument(agent.name, prompt, responseText);
       }
     }
   })();
@@ -245,6 +256,10 @@ app.post("/chat", async (c) => {
   }
 
   return c.json({ ok: true, taskId });
+});
+
+app.get("/documents", (c) => {
+  return c.json(listDocuments());
 });
 
 app.get("/dashboard", (c) => {

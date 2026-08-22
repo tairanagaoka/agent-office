@@ -24,8 +24,8 @@ Claude Code の複数エージェントを「レトロなドット絵オフィ�
 
 ```
 server/            Node.js + Hono + @anthropic-ai/claude-agent-sdk
-server/data/       Todo(todos.json)・Google OAuthトークン(google-auth.json)の永続化。
-                   gitignore対象、実行時に自動生成
+server/data/       Todo(todos.json)・Google OAuthトークン(google-auth.json)・
+                   資料/書斎(documents/*.md)の永続化。gitignore対象、実行時に自動生成
 web/               React + TypeScript + Vite
 templates/agents/  エージェント定義(Markdown, frontmatter: id/name + システムプロンプト本文)
 docs/concept.md    構想メモ・マイルストーン記録
@@ -75,6 +75,16 @@ npm workspaces構成。依存関係はルートで `npm install`、各ワーク�
   ボタンもチャット/ホワイトボードのタブ横に残している。
 - `/todos`のCRUDや`/todos/:id/assign`はAPIとしては残っているが、フロントのUIからは呼んでいない
   （直接API操作や将来の用途のために削除はしていない）。
+
+## 資料（書斎、5-4）
+
+- `server/src/documents.ts`が担当。`runTask()`内でSDKの`assistant`メッセージから
+  テキストを蓄積し、タスク完了時に`server/data/documents/{timestamp}-{id}.md`として
+  frontmatter(id/agent/prompt/timestamp)付きで保存する。ブラウザを閉じていても残る。
+- フロントは`GET /documents`で読み込み、接続時とタスク完了ごとに再取得する
+  （サーバー側が正、フロント側での組み立てはしない）。
+- Markdown表示は`react-markdown` + `remark-gfm`を使用（見出し・表・コードブロック等に対応）。
+  `.chat-markdown`クラスで狭い吹き出し用に余白を詰めている。
 
 ## 実装上の注意
 
