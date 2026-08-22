@@ -41,6 +41,35 @@ type Dashboard = {
   rateLimits: RateLimitInfo[];
 };
 
+// 机とブラウン管モニターのドット絵風アイコン。稼働状態で画面の光り方が変わる。
+// 画像素材を使わずSVGの矩形だけで組む(crispEdgesでアンチエイリアスを切ってドット感を出す)
+function DeskIcon({ status }: { status: "idle" | "running" | "failed" }) {
+  const screenColor = status === "running" ? "#7CFC9E" : status === "failed" ? "#ff6b6b" : "#3a3a3a";
+  const glow = status === "idle" ? "none" : `0 0 6px ${screenColor}`;
+
+  return (
+    <svg
+      width="56"
+      height="48"
+      viewBox="0 0 56 48"
+      shapeRendering="crispEdges"
+      style={{ display: "block" }}
+    >
+      {/* 机 */}
+      <rect x="4" y="38" width="48" height="6" fill="#8a6540" />
+      <rect x="6" y="44" width="4" height="4" fill="#5c4326" />
+      <rect x="46" y="44" width="4" height="4" fill="#5c4326" />
+      {/* モニター本体 */}
+      <rect x="14" y="10" width="28" height="22" fill="#d8d2c2" />
+      <rect x="24" y="32" width="8" height="4" fill="#b8b2a2" />
+      {/* 画面(稼働状態で色が変わる) */}
+      <rect x="18" y="14" width="20" height="14" fill={screenColor} style={{ filter: glow !== "none" ? `drop-shadow(${glow})` : "none" }} />
+      {/* 電源ランプ */}
+      <rect x="38" y="28" width="2" height="2" fill={status === "idle" ? "#666" : "#ffdd55"} />
+    </svg>
+  );
+}
+
 export function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [connected, setConnected] = useState(false);
@@ -295,14 +324,17 @@ export function App() {
         <div style={{ display: "flex", gap: "1rem" }}>
           {Object.entries(panels).map(([agentId, panel]) => (
             <div key={agentId} style={{ flex: 1, border: "1px solid #ccc", padding: "1rem" }}>
-              <h2 style={{ fontSize: "1.1rem" }}>
-                {panel.name}{" "}
-                <span style={{ fontSize: "0.8rem", color: "#666" }}>
-                  (
-                  {panel.status === "running" ? "実行中" : panel.status === "failed" ? "失敗" : "待機"}
-                  )
-                </span>
-              </h2>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
+                <DeskIcon status={panel.status} />
+                <h2 style={{ fontSize: "1.1rem", margin: 0 }}>
+                  {panel.name}{" "}
+                  <span style={{ fontSize: "0.8rem", color: "#666" }}>
+                    (
+                    {panel.status === "running" ? "実行中" : panel.status === "failed" ? "失敗" : "待機"}
+                    )
+                  </span>
+                </h2>
+              </div>
 
               <div style={{ minHeight: 200, marginBottom: "0.5rem", overflowY: "auto" }}>
                 {panel.lines.map((line, i) => (
